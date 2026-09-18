@@ -6,9 +6,6 @@ Point it at an Azure DevOps repo, and it charts who did what, day by day: commit
 merges, PRs, PR comments and ticket activity. No database, no login, no server.
 Run it, look at it, close it.
 
-![the dashboard](context/image.png)
-*(the original Flow view Snoop is imitating)*
-
 | Row | Colour | Source | Pill size means |
 |---|---|---|---|
 | Code commit | blue | non-merge commits | files changed |
