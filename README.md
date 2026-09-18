@@ -1,6 +1,6 @@
 # Snoop
 
-A minimal stand-in for the activity dashboard in Appfire Flow, which is being retired.
+A vibe coded super minimal/hacky stand-in for the activity dashboard in Appfire Flow, which is being retired.
 
 Point it at an Azure DevOps repo, and it charts who did what, day by day: commits,
 merges, PRs, PR comments and ticket activity. No database, no login, no server.
