@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snoop</title>
+<style>
+  :root {
+    --bg:      #0b0d10;
+    --panel:   #111418;
+    --panel-2: #161a1f;
+    --line:    #222a32;
+    --text:    #c7d2de;
+    --dim:     #7a8794;
+    --dimmer:  #4d5964;
+
+    --commit:  #4c9ffe;
+    --merge:   #f5d33a;
+    --pr:      #a78bfa;
+    --comment: #fc8181;
+    --ticket:  #4ade80;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+  }
+
+  /* ---------- shell ---------- */
+
+  .app { display: flex; height: 100vh; overflow: hidden; }
+
+  .sidebar {
+    width: 210px;
+    flex: 0 0 210px;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    padding: 16px 18px;
+    overflow-y: auto;
+  }
+
+  .main { flex: 1; overflow: auto; position: relative; }
+
+  /* ---------- sidebar ---------- */
+
+  .brand {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    color: #e6edf5;
+    margin-bottom: 2px;
+  }
+  .brand-sub { color: var(--dimmer); font-size: 11px; margin-bottom: 20px; }
+
+  .group { margin-bottom: 22px; }
+  .group > h4 {
+    margin: 0 0 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--dim);
+  }
+  .group + .group { border-top: 1px solid var(--line); padding-top: 18px; }
+
+  label.opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+    user-select: none;
+    font-size: 12.5px;
+  }
+  label.opt:hover { color: #fff; }
+  label.opt input { accent-color: #4c9ffe; margin: 0; cursor: pointer; }
+  .swatch { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+  .opt-count { margin-left: auto; color: var(--dimmer); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  .meta { font-size: 11px; color: var(--dimmer); line-height: 1.7; }
+  .meta code {
+    display: block;
+    margin-top: 8px;
+    padding: 6px 7px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--dim);
+    font-size: 10.5px;
+    word-break: break-all;
+  }
+
+  /* ---------- grid ---------- */
+
+  .grid { display: grid; min-width: min-content; }
+
+  .cell { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+
+  .head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--panel-2);
+    padding: 9px 10px;
+    font-size: 11px;
+    letter-spacing: .09em;
+    color: var(--dim);
+    text-align: center;
+    white-space: nowrap;
+  }
+  .head.today { color: #e6edf5; font-weight: 600; }
+  .head.weekend { color: var(--dimmer); font-style: italic; }
+
+  .rowlabel {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--panel);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+  }
+  .rowlabel .name {
+    font-size: 12.5px;
+    color: #dbe5ef;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rowlabel .tot { font-size: 10.5px; color: var(--dimmer); font-variant-numeric: tabular-nums; }
+  .rowlabel.empty .name { color: var(--dimmer); }
+
+  .corner { position: sticky; left: 0; top: 0; z-index: 4; background: var(--panel-2); }
+
+  .daycell { padding: 7px 8px; display: flex; flex-direction: column; gap: 3px; }
+  .daycell.weekend { background: rgba(255,255,255,.012); }
+
+  .band { display: flex; flex-wrap: wrap; gap: 3px; min-height: 9px; align-content: flex-start; }
+
+  .pill {
+    height: 7px;
+    border-radius: 4px;
+    opacity: .92;
+    cursor: default;
+    transition: opacity .1s, transform .1s;
+  }
+  .pill:hover { opacity: 1; transform: scaleY(1.45); }
+  .pill.dot { border-radius: 50%; width: 7px; }
+
+  .pill.commit  { background: var(--commit); }
+  .pill.merge   { background: var(--merge); }
+  .pill.pr      { background: var(--pr); }
+  .pill.comment { background: var(--comment); }
+  .pill.ticket  { background: var(--ticket); }
+
+  /* ---------- summary ---------- */
+
+  .summary { padding: 26px 22px 60px; border-top: 1px solid var(--line); margin-top: 4px; }
+  .summary h3 { margin: 0 0 14px; font-size: 12px; font-weight: 500; color: var(--dim); letter-spacing: .06em; }
+  table { border-collapse: collapse; font-size: 12.5px; }
+  th, td { padding: 7px 14px 7px 0; text-align: right; white-space: nowrap; }
+  th { color: var(--dim); font-weight: 500; border-bottom: 1px solid var(--line); font-size: 11px; }
+  td.who, th.who { text-align: left; color: #dbe5ef; padding-right: 30px; }
+  tbody tr:hover { background: rgba(255,255,255,.03); }
+  td { font-variant-numeric: tabular-nums; color: var(--text); }
+  td.zero { color: var(--dimmer); }
+
+  .banner {
+    margin: 0;
+    padding: 11px 22px;
+    background: #2a2412;
+    border-bottom: 1px solid #4a3f1c;
+    color: #f0d68a;
+    font-size: 12.5px;
+  }
+  .banner b { color: #ffe9a8; }
+  .banner code { background: rgba(0,0,0,.28); padding: 1px 5px; border-radius: 3px; font-size: 11.5px; }
+
+  /* Informational rather than a warning: no roster was configured. */
+  .banner.info { background: #12202c; border-bottom-color: #1f3a4d; color: #9ec5e0; }
+  .banner.info b { color: #d3e8f7; }
+
+  .unmatched { padding: 0 22px 50px; }
+  .unmatched h3 { font-size: 12px; font-weight: 500; color: var(--dim); letter-spacing: .06em; margin: 0 0 6px; }
+  .unmatched p { color: var(--dimmer); font-size: 11.5px; margin: 0 0 12px; max-width: 60ch; }
+  .unmatched td.who { color: var(--dim); }
+
+  .empty-state { padding: 60px 22px; color: var(--dim); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">SNOOP</div>
+    <div class="brand-sub" id="brandSub"></div>
+
+    <div class="group">
+      <h4>Legend:</h4>
+      <div id="legend"></div>
+    </div>
+
+    <div class="group">
+      <h4>View by:</h4>
+      <label class="opt"><input type="radio" name="viewby" value="user" checked> User</label>
+      <label class="opt"><input type="radio" name="viewby" value="repo"> Repo</label>
+    </div>
+
+    <div class="group">
+      <h4>Sort by:</h4>
+      <label class="opt"><input type="radio" name="sortby" value="name" checked> Name</label>
+      <label class="opt"><input type="radio" name="sortby" value="asc"> Low to high activity</label>
+      <label class="opt"><input type="radio" name="sortby" value="desc"> High to low activity</label>
+    </div>
+
+    <div class="group">
+      <h4>Custom:</h4>
+      <label class="opt"><input type="checkbox" id="sizeToggle" checked> Size</label>
+      <label class="opt"><input type="checkbox" id="hideEmpty"> Hide inactive rows</label>
+    </div>
+
+    <div class="group">
+      <h4>Snapshot:</h4>
+      <div class="meta" id="metaBox"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="banner"></div>
+    <div class="grid" id="grid"></div>
+    <div class="summary">
+      <h3>TOTALS FOR THE WINDOW</h3>
+      <div id="summary"></div>
+    </div>
+    <div class="unmatched" id="unmatchedBox"></div>
+  </main>
+</div>
+
+<script>
+const DATA = __SNOOP_DATA__;
+
+const TYPES = [
+  { key: 'commit',  label: 'Code commit',    unit: 'files' },
+  { key: 'merge',   label: 'Merge commit',   unit: 'files' },
+  { key: 'pr',      label: 'PR activity',    unit: '' },
+  { key: 'comment', label: 'PR comment',     unit: 'chars' },
+  { key: 'ticket',  label: 'Ticket activity', unit: 'fields' }
+];
+
+const state = {
+  types:   new Set(TYPES.map(t => t.key)),
+  viewBy:  'user',
+  sortBy:  'name',
+  size:    true,
+  hideEmpty: false
+};
+
+const peopleById = new Map(DATA.people.map(p => [p.id, p]));
+
+/* A pill's width encodes how big the event was. Tickets stay as dots, which is
+   what Flow did - a field change has no meaningful "size". */
+function pillWidth(type, weight) {
+  if (!state.size || type === 'ticket') return null;
+  const w = weight || 0;
+  if (type === 'comment') {
+    if (w <= 40)  return 9;
+    if (w <= 120) return 15;
+    if (w <= 350) return 24;
+    return 34;
+  }
+  if (w <= 2)   return 9;
+  if (w <= 8)   return 15;
+  if (w <= 25)  return 24;
+  if (w <= 80)  return 34;
+  return 46;
+}
+
+function groupKeyOf(evt) {
+  if (state.viewBy === 'repo') return evt.r;
+  return evt.p;
+}
+
+function groupLabelOf(key) {
+  if (state.viewBy === 'repo') return key;
+  const person = peopleById.get(key);
+  return person ? person.name : 'Unknown';
+}
+
+/* Build: groupKey -> { total, byType, days: Map(dayKey -> Map(type -> events[])) } */
+function buildGroups() {
+  const groups = new Map();
+
+  const ensure = key => {
+    if (!groups.has(key)) {
+      groups.set(key, { key, label: groupLabelOf(key), total: 0, byType: {}, weight: {}, days: new Map() });
+    }
+    return groups.get(key);
+  };
+
+  // Seed every roster member so inactive people still get a row.
+  if (state.viewBy === 'user') {
+    DATA.people.forEach(p => ensure(p.id));
+  } else {
+    DATA.meta.repos.forEach(r => ensure(r));
+  }
+
+  for (const evt of DATA.events) {
+    if (state.viewBy === 'user' && evt.p < 0) continue;   // unattributed
+    if (!state.types.has(evt.t)) continue;
+
+    const group = ensure(groupKeyOf(evt));
+    group.total++;
+    group.byType[evt.t] = (group.byType[evt.t] || 0) + 1;
+    group.weight[evt.t] = (group.weight[evt.t] || 0) + (evt.w || 0);
+
+    if (!group.days.has(evt.d)) group.days.set(evt.d, new Map());
+    const day = group.days.get(evt.d);
+    if (!day.has(evt.t)) day.set(evt.t, []);
+    day.get(evt.t).push(evt);
+  }
+
+  let rows = [...groups.values()];
+  if (state.hideEmpty) rows = rows.filter(g => g.total > 0);
+
+  if (state.sortBy === 'name')      rows.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  else if (state.sortBy === 'asc')  rows.sort((a, b) => a.total - b.total || String(a.label).localeCompare(String(b.label)));
+  else                              rows.sort((a, b) => b.total - a.total || String(a.label).localeCompare(String(b.label)));
+
+  return rows;
+}
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls)  node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function renderGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  grid.style.gridTemplateColumns = `210px repeat(${DATA.days.length}, 118px)`;
+
+  // Header row
+  grid.appendChild(el('div', 'cell head corner'));
+  for (const day of DATA.days) {
+    let cls = 'cell head';
+    if (day.label === 'TODAY') cls += ' today';
+    if (day.weekend) cls += ' weekend';
+    grid.appendChild(el('div', cls, day.label));
+  }
+
+  const rows = buildGroups();
+  const activeTypes = TYPES.filter(t => state.types.has(t.key));
+
+  if (!rows.length) {
+    const msg = el('div', 'empty-state', 'Nothing to show. Try enabling more activity types.');
+    msg.style.gridColumn = '1 / -1';
+    grid.appendChild(msg);
+    return;
+  }
+
+  const rowBandSets = [];
+
+  for (const row of rows) {
+    const label = el('div', 'cell rowlabel' + (row.total === 0 ? ' empty' : ''));
+    label.appendChild(el('div', 'name', row.label));
+    label.appendChild(el('div', 'tot',
+      row.total === 0 ? 'no activity' : row.total + (row.total === 1 ? ' event' : ' events')));
+    label.title = row.label;
+    grid.appendChild(label);
+
+    // One bucket per activity type, collecting that band across every day cell.
+    const bandsByType = activeTypes.map(() => []);
+
+    for (const day of DATA.days) {
+      const cell = el('div', 'cell daycell' + (day.weekend ? ' weekend' : ''));
+      const dayData = row.days.get(day.key);
+
+      activeTypes.forEach((type, i) => {
+        const band = el('div', 'band');
+        const events = dayData ? dayData.get(type.key) : null;
+        if (events) {
+          for (const evt of events) {
+            const pill = el('div', 'pill ' + type.key + (type.key === 'ticket' ? ' dot' : ''));
+            const width = pillWidth(type.key, evt.w);
+            pill.style.width = width == null ? (type.key === 'ticket' ? '' : '13px') : width + 'px';
+            pill.title = `${type.label} - ${day.key}\n${evt.x}`;
+            band.appendChild(pill);
+          }
+        }
+        bandsByType[i].push(band);
+        cell.appendChild(band);
+      });
+      grid.appendChild(cell);
+    }
+    rowBandSets.push(bandsByType);
+  }
+
+  // Flow keeps each activity type on its own horizontal line across the whole
+  // row. Wrapping makes every cell a different height, so pin each band to the
+  // tallest one in its row after layout.
+  for (const bandsByType of rowBandSets) {
+    for (const bands of bandsByType) {
+      let tallest = 0;
+      for (const band of bands) tallest = Math.max(tallest, band.scrollHeight);
+      for (const band of bands) band.style.height = tallest + 'px';
+    }
+  }
+}
+
+function renderLegend() {
+  const box = document.getElementById('legend');
+  box.innerHTML = '';
+
+  const counts = {};
+  for (const evt of DATA.events) counts[evt.t] = (counts[evt.t] || 0) + 1;
+
+  for (const type of TYPES) {
+    const label = el('label', 'opt');
+
+    const box1 = document.createElement('input');
+    box1.type = 'checkbox';
+    box1.checked = state.types.has(type.key);
+    box1.addEventListener('change', () => {
+      box1.checked ? state.types.add(type.key) : state.types.delete(type.key);
+      render();
+    });
+
+    const swatch = el('span', 'swatch');
+    swatch.style.background = `var(--${type.key})`;
+
+    label.appendChild(box1);
+    label.appendChild(swatch);
+    label.appendChild(document.createTextNode(type.label));
+    label.appendChild(el('span', 'opt-count', counts[type.key] || 0));
+    box.appendChild(label);
+  }
+}
+
+function renderSummary() {
+  const rows = buildGroups();
+  const table = el('table');
+
+  const head = el('tr');
+  head.appendChild(el('th', 'who', state.viewBy === 'repo' ? 'Repo' : 'Person'));
+  for (const type of TYPES) head.appendChild(el('th', null, type.label));
+  head.appendChild(el('th', null, 'Files changed'));
+  head.appendChild(el('th', null, 'Total'));
+  const thead = el('thead'); thead.appendChild(head); table.appendChild(thead);
+
+  const body = el('tbody');
+  for (const row of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', 'who', row.label));
+    for (const type of TYPES) {
+      const n = row.byType[type.key] || 0;
+      tr.appendChild(el('td', n ? null : 'zero', n));
+    }
+    const files = (row.weight.commit || 0) + (row.weight.merge || 0);
+    tr.appendChild(el('td', files ? null : 'zero', files));
+    tr.appendChild(el('td', row.total ? null : 'zero', row.total));
+    body.appendChild(tr);
+  }
+  table.appendChild(body);
+
+  const box = document.getElementById('summary');
+  box.innerHTML = '';
+  box.appendChild(table);
+}
+
+function renderChrome() {
+  document.getElementById('brandSub').textContent = `${DATA.meta.org} / ${DATA.meta.project}`;
+  document.title = `Snoop - ${DATA.meta.project}`;
+
+  document.getElementById('metaBox').innerHTML =
+    `${DATA.meta.from} to ${DATA.meta.to}<br>` +
+    `${DATA.events.length} events<br>` +
+    `repos: ${DATA.meta.repos.join(', ')}${DATA.meta.branches ? ' (all branches)' : ' (default branch)'}<br>` +
+    (DATA.meta.tickets ? `tickets: ${DATA.meta.tickets}<br>` : '') +
+    `config: ${DATA.meta.config}<br>` +
+    `generated ${DATA.meta.generated}` +
+    `<code>${DATA.meta.command}</code>`;
+
+  const banner = document.getElementById('banner');
+  if (DATA.meta.mode === 'fallback') {
+    banner.innerHTML =
+      `<div class="banner"><b>Heads up:</b> none of the names in <code>${DATA.meta.config}</code> matched any activity in ` +
+      `<b>${DATA.meta.org}/${DATA.meta.project}</b>, so this is showing the people who actually appear here. ` +
+      `Point Snoop at the right org, or fix the <code>people</code> list.</div>`;
+  } else if (DATA.meta.mode === 'discovered') {
+    banner.innerHTML =
+      `<div class="banner info">No roster configured, so this is the <b>${DATA.people.length}</b> most active people in ` +
+      `<b>${DATA.meta.org}/${DATA.meta.project}</b>. Add names to <code>people</code> in ` +
+      `<code>${DATA.meta.config}</code> to pin the list.</div>`;
+  }
+
+  const box = document.getElementById('unmatchedBox');
+  box.innerHTML = '';
+
+  // Commits carry whatever name sits in someone's local git config, which is
+  // often not the name ADO knows them by. When that happens their PRs and
+  // tickets land on their row and their commits land here, which looks exactly
+  // like "this person wrote no code" - so call it out rather than list it.
+  const orphans = DATA.unmatched.filter(i => /commit|merge/.test(i.types || ''));
+  if (orphans.length) {
+    const warn = el('div', 'banner');
+    warn.innerHTML = '<b>' + orphans.length + ' commit author' + (orphans.length === 1 ? '' : 's') +
+      '</b> could not be tied to anyone on the roster, so those commits are on nobody\'s row: ' +
+      orphans.slice(0, 4).map(i => '<code>' + (i.name || i.email) + '</code>' +
+        (i.suggest ? ' (probably ' + i.suggest + ')' : '')).join(', ') +
+      '. Add them under <code>aliases</code> in <code>' + DATA.meta.config + '</code>.';
+    document.getElementById('banner').appendChild(warn);
+  }
+
+  if (DATA.unmatched.length) {
+    box.innerHTML = '<h3>IDENTITIES NOT ON THE ROSTER</h3>' +
+      '<p>Active here, but not on your <code>people</code> list. If one of these is someone you ' +
+      'do track, add <code>"' + (DATA.unmatched[0].name || 'their git name') + '": "' +
+      (DATA.unmatched[0].suggest || 'Their Roster Name') + '"</code> under <code>aliases</code> in <code>' +
+      DATA.meta.config + '</code>.</p>';
+
+    const table = el('table');
+    const head = el('tr');
+    head.appendChild(el('th', 'who', 'Name'));
+    head.appendChild(el('th', 'who', 'Email'));
+    head.appendChild(el('th', null, 'Events'));
+    head.appendChild(el('th', 'who', 'What'));
+    head.appendChild(el('th', 'who', 'Looks like'));
+    const thead = el('thead'); thead.appendChild(head); table.appendChild(thead);
+
+    const body = el('tbody');
+    for (const identity of DATA.unmatched) {
+      const tr = el('tr');
+      tr.appendChild(el('td', 'who', identity.name || '(none)'));
+      tr.appendChild(el('td', 'who', identity.email || '(none)'));
+      tr.appendChild(el('td', null, identity.count));
+      tr.appendChild(el('td', 'who', identity.types || ''));
+      tr.appendChild(el('td', 'who', identity.suggest || ''));
+      body.appendChild(tr);
+    }
+    table.appendChild(body);
+    box.appendChild(table);
+  }
+
+  // Nickname/handle guesses are right most of the time, but not always - show
+  // the working so a wrong one is visible instead of silently believed.
+  const weak = DATA.weak || [];
+  if (weak.length) {
+    const note = el('p');
+    note.innerHTML = '<b>Matched by nickname or handle:</b> ' + weak.map(w =>
+      '<code>' + (w.name || w.email) + '</code> &rarr; ' + w.person + ' (' + w.count + ')').join(', ') +
+      '. Add an <code>aliases</code> entry if any of these is wrong.';
+    if (!box.innerHTML) { box.innerHTML = '<h3>IDENTITY NOTES</h3>'; }
+    box.appendChild(note);
+  }
+}
+
+function render() {
+  renderGrid();
+  renderSummary();
+}
+
+document.querySelectorAll('input[name="viewby"]').forEach(input =>
+  input.addEventListener('change', () => { state.viewBy = input.value; render(); }));
+
+document.querySelectorAll('input[name="sortby"]').forEach(input =>
+  input.addEventListener('change', () => { state.sortBy = input.value; render(); }));
+
+document.getElementById('sizeToggle').addEventListener('change', e => {
+  state.size = e.target.checked; render();
+});
+
+document.getElementById('hideEmpty').addEventListener('change', e => {
+  state.hideEmpty = e.target.checked; render();
+});
+
+renderChrome();
+renderLegend();
+render();
+</script>
+</body>
+</html>

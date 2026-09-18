@@ -1,0 +1,7 @@
+# Generated dashboard - contains real names, commit messages and PR comments
+snoop.html
+
+# Your own settings - org, project and roster live here
+snoop.config.json
+*.config.json
+!snoop.config.example.json

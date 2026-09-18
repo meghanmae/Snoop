@@ -1,0 +1,25 @@
+{
+  "organization": "contoso",
+  "project": "Apollo",
+  "repositories": [
+    "web",
+    "api"
+  ],
+  "daysBack": 14,
+
+  "people": [],
+
+  "aliases": {},
+
+  "workItems": {
+    "organization": "",
+    "projects": [],
+    "areaPaths": []
+  },
+
+  "maxDiscoveredPeople": 20,
+  "prLookbackDays": 90,
+  "includeAllBranches": true,
+  "maxBranches": 50,
+  "includeWeekends": false
+}
