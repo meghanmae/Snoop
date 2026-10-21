@@ -1,0 +1,204 @@
+//! snoop.config.json: what to look at. Re-read on every refresh, so edits to the
+//! file show up on the next press of Refresh without restarting.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Config {
+    pub organization: String,
+    pub project: String,
+    pub repositories: Vec<String>,
+    pub days_back: i64,
+    pub people: Vec<String>,
+    pub aliases: IndexMap<String, String>,
+    pub work_items: WorkItemConfig,
+    pub max_discovered_people: usize,
+    pub pr_lookback_days: i64,
+    pub include_all_branches: bool,
+    pub max_branches: usize,
+    pub include_weekends: bool,
+    /// Team name -> its repos, or { repositories, areaPaths, members }.
+    pub teams: IndexMap<String, TeamConfig>,
+    pub stats: StatsConfig,
+    /// How many Azure DevOps requests may be in flight at once.
+    pub max_concurrent_requests: usize,
+    /// Local port for the dashboard. Falls back to any free port if taken.
+    pub port: u16,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            organization: "contoso".into(),
+            project: "Apollo".into(),
+            repositories: vec!["Apollo".into()],
+            days_back: 14,
+            people: vec![],
+            aliases: IndexMap::new(),
+            work_items: WorkItemConfig::default(),
+            max_discovered_people: 20,
+            pr_lookback_days: 90,
+            include_all_branches: true,
+            max_branches: 50,
+            include_weekends: false,
+            teams: IndexMap::new(),
+            stats: StatsConfig::default(),
+            max_concurrent_requests: 12,
+            port: 7414,
+        }
+    }
+}
+
+/// Tickets do not always live with the code. Blank fields mean "same as the
+/// repo"; fill them in when the boards are in another project or org.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkItemConfig {
+    pub organization: String,
+    pub projects: Vec<String>,
+    pub area_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TeamConfig {
+    Repos(Vec<String>),
+    Repo(String),
+    Detail(TeamDetail),
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TeamDetail {
+    pub repositories: Vec<String>,
+    /// Otherwise the backlog is whatever the members are assigned.
+    pub area_paths: Vec<String>,
+    /// Stories titled "CG - ...", "CG: ..." or "[CG] ..." belong to the team,
+    /// for teams that share one backlog and tell their stories apart by name.
+    pub title_prefixes: Vec<String>,
+    /// Otherwise anyone with a PR in the team's repos.
+    pub members: Vec<String>,
+}
+
+/// The Teams view reaches back much further than daysBack: velocity and
+/// forecasts need months of closed stories, not a fortnight.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StatsConfig {
+    pub months_back: u32,
+    pub sprint_length_days: i64,
+    /// Any sprint's first day, to line up with real sprints.
+    pub sprint_anchor_date: String,
+    /// How many recent sprints the forecast averages.
+    pub velocity_sprints: usize,
+    pub story_types: Vec<String>,
+    /// Converts task Remaining Work hours into dev-days.
+    pub hours_per_dev_day: f64,
+}
+
+impl Default for StatsConfig {
+    fn default() -> Self {
+        Self {
+            months_back: 6,
+            sprint_length_days: 14,
+            sprint_anchor_date: String::new(),
+            velocity_sprints: 6,
+            story_types: vec!["User Story".into(), "Product Backlog Item".into(), "Story".into()],
+            hours_per_dev_day: 6.0,
+        }
+    }
+}
+
+pub struct Team {
+    pub name: String,
+    pub repos: Vec<String>,
+    pub area_paths: Vec<String>,
+    pub title_prefixes: Vec<String>,
+    pub members: Vec<String>,
+}
+
+/// The config with every "blank means the same as..." rule applied.
+pub struct Settings {
+    pub config: Config,
+    pub config_name: String,
+    pub work_item_org: String,
+    pub work_item_projects: Vec<String>,
+    /// Lower-cased keys: alias lookups ignore case.
+    pub aliases: HashMap<String, String>,
+    pub teams: Vec<Team>,
+}
+
+/// --config wins; then snoop.config.json in the current directory; then next
+/// to the exe, where a starter file is written if there is none anywhere.
+pub fn locate(explicit: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(path) = explicit {
+        return Ok(path);
+    }
+    let here = PathBuf::from("snoop.config.json");
+    if here.exists() {
+        return Ok(here);
+    }
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let beside = exe_dir.join("snoop.config.json");
+    if !beside.exists() {
+        std::fs::write(&beside, serde_json::to_string_pretty(&Config::default())?)
+            .with_context(|| format!("could not write a starter config to {}", beside.display()))?;
+        println!("Created starter config: {}", beside.display());
+    }
+    Ok(beside)
+}
+
+pub fn load(path: &Path) -> Result<Settings> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("could not read {}", path.display()))?;
+    let config: Config = serde_json::from_str(text.trim_start_matches('\u{feff}'))
+        .with_context(|| format!("could not parse {}", path.display()))?;
+
+    let work_item_org = if config.work_items.organization.is_empty() {
+        config.organization.clone()
+    } else {
+        config.work_items.organization.clone()
+    };
+    let work_item_projects = if config.work_items.projects.is_empty() {
+        vec![config.project.clone()]
+    } else {
+        config.work_items.projects.clone()
+    };
+    let aliases = config.aliases.iter().map(|(k, v)| (k.to_lowercase(), v.clone())).collect();
+
+    let teams = config
+        .teams
+        .iter()
+        .map(|(name, team)| {
+            let detail = match team.clone() {
+                TeamConfig::Repos(repositories) => TeamDetail { repositories, ..TeamDetail::default() },
+                TeamConfig::Repo(repo) => TeamDetail { repositories: vec![repo], ..TeamDetail::default() },
+                TeamConfig::Detail(detail) => detail,
+            };
+            Team {
+                name: name.clone(),
+                repos: detail.repositories,
+                area_paths: detail.area_paths,
+                title_prefixes: detail.title_prefixes,
+                members: detail.members,
+            }
+        })
+        .collect();
+
+    Ok(Settings {
+        config_name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        config,
+        work_item_org,
+        work_item_projects,
+        aliases,
+        teams,
+    })
+}

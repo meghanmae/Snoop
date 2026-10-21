@@ -1,0 +1,25 @@
+[package]
+name = "snoop"
+version = "0.2.0"
+edition = "2024"
+publish = false
+description = "Local Azure DevOps activity and team-forecast dashboard"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+indexmap = { version = "2", features = ["serde"] }
+# SChannel on Windows: no C toolchain needed to build.
+reqwest = { version = "0.12", default-features = false, features = ["native-tls", "gzip", "json", "http2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "process", "io-std"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

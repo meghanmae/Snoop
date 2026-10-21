@@ -16,7 +16,49 @@ Run it, look at it, close it.
 
 ---
 
-## Quick start
+## Quick start: snoop.exe
+
+```powershell
+.\snoop.exe
+```
+
+It reads `snoop.config.json` (from the current folder, else next to the exe -
+a starter one is written there on first run), opens the dashboard in your
+browser and fetches. Press **Refresh** in the sidebar to fetch again; it
+re-reads the config too, so edit it and refresh rather than restarting. Close
+the console window to stop it.
+
+Requests run side by side, so a refresh takes seconds rather than minutes.
+Two extra settings control the exe:
+
+| Setting | |
+|---|---|
+| `maxConcurrentRequests` | Requests in flight at once (default 12). Lower it if ADO starts throttling. |
+| `port` | Local port for the dashboard (default 7414; any free port if taken) |
+
+```powershell
+.\snoop.exe --config .\client.config.json   # another config
+.\snoop.exe --port 8080 --no-open           # different port, no browser
+```
+
+Auth is the same as the script: `ADO_PAT` if set, otherwise `az login`.
+
+### Building it
+
+One-time setup (no admin rights needed):
+
+```powershell
+winget install Rustlang.Rustup
+rustup default stable-x86_64-pc-windows-gnu
+winget install BrechtSanders.WinLibs.POSIX.UCRT   # provides dlltool; add its mingw64\bin to PATH
+```
+
+Then `cargo build --release` gives `target\release\snoop.exe`, a single file
+with the dashboard built in. Copy it wherever you like.
+
+## Quick start: the PowerShell script
+
+The original script still works and needs nothing installed:
 
 ```powershell
 cd C:\tools\Snoop
@@ -116,6 +158,74 @@ If the boards are in a different **org** than the code, your `az login` usually
 still covers both, as long as they're in the same tenant. If they aren't, use a PAT
 (see [Auth](#auth)) — but note a PAT is issued per org, so split the run in two, or
 use a token that org accepts.
+
+### Teams, velocity and forecasts
+
+The **Teams** tab groups repos into teams and answers "when will this be done?".
+List each team's repos under `teams`:
+
+```json
+"teams": {
+  "Billing": [
+    "Contoso.Web.Billing",
+    "Contoso.Api.Billing",
+    "Contoso.Mobile.Billing"
+  ],
+  "Scheduling": {
+    "repositories": [ "Contoso.Web.Scheduling", "Contoso.Api.Scheduling" ],
+    "titlePrefixes": [ "SCH" ]
+  },
+  "Docs": {
+    "repositories": [ "Contoso.Web.Docs", "Contoso.Api.Docs" ],
+    "areaPaths": [ "Apollo\\Docs" ],
+    "members": [ "Fletcher, Quinn", "Grant, Sam" ]
+  }
+}
+```
+
+A bare list of repos is enough. The longer form fixes the two guesses Snoop makes:
+
+| Field | Without it |
+|---|---|
+| `members` | anyone on the roster with a PR in the team's repos |
+| `areaPaths` / `titlePrefixes` | the team's backlog is the open stories assigned to its members, so unassigned stories are missed |
+
+Use `titlePrefixes` when several teams share one backlog and name their stories
+`CG - ...`, `CG: ...` or `[CG] ...`. Matching ignores case and needs the whole tag,
+so `CG` doesn't catch `CGI ...`. A task belongs to its parent story's team. A team
+can have both: a story under its area paths *or* with its prefix counts.
+
+No `teams` at all gives one team made of everyone on the roster.
+
+The Teams tab looks back much further than `daysBack`, set under `stats`:
+
+| Setting | |
+|---|---|
+| `monthsBack` | How far back to read PRs and closed stories (default 6) |
+| `sprintLengthDays` | Sprint length (default 14) |
+| `sprintAnchorDate` | The first day of any one sprint, e.g. `"2026-01-05"`, so the periods line up with your real sprints and the sprint in progress stays out of the average. Without it, sprints are rolling periods ending today. |
+| `velocitySprints` | How many recent sprints the forecast averages (default 6; also switchable on the page) |
+| `storyTypes` | Work item types that carry points (default User Story / PBI / Story) |
+| `hoursPerDevDay` | Converts task Remaining Work hours into dev-days (default 6) |
+
+For each team it shows:
+
+- **Velocity**: points closed per sprint, averaged over recent sprints, with a slow
+  and fast figure from the slower and faster halves of those sprints. Teams that
+  don't point their stories get a story count instead.
+- **Open work**: points on every story not Done or Removed (state categories come
+  from ADO, so Closed, Done, Cut etc. all work), split into not started, in
+  progress and resolved. Unpointed stories count at the team's average story size.
+- **Likely finish**: open work ÷ velocity, as working days and a date, with the
+  slow–fast range. Also shown as **dev-days** of effort, and as task hours if
+  your tasks carry Remaining Work.
+- **Charts**: velocity per sprint, and a burn-up with the forecast running forward.
+- **Per member**: PRs split into completed / abandoned / active / draft, open
+  drafts, stories and points closed, average points per story, a velocity
+  sparkline, open work and how many working days it would take them at their pace.
+
+The forecast assumes the backlog stops growing. New work pushes the date out, so
+re-run it often. `-SkipTeamStats` skips the whole pass.
 
 ### Pointing it at a different repo
 
@@ -223,7 +333,8 @@ Every switch overrides the config file for that run only.
 .\Snoop.ps1 -DefaultBranchOnly            # skip feature branches (faster)
 .\Snoop.ps1 -AutoDiscoverPeople           # ignore the roster, chart whoever is there
 .\Snoop.ps1 -IncludeWeekends              # keep empty Sat/Sun columns
-.\Snoop.ps1 -SkipWorkItems -SkipPrComments # fastest possible run
+.\Snoop.ps1 -SkipTeamStats                # no Teams tab (velocity, forecasts)
+.\Snoop.ps1 -SkipWorkItems -SkipPrComments -SkipTeamStats # fastest possible run
 .\Snoop.ps1 -OutFile C:\temp\week.html    # write somewhere else
 .\Snoop.ps1 -NoOpen                       # write the file, don't launch a browser
 ```
@@ -289,7 +400,8 @@ The banner at the top tells you if Snoop ignored your roster, and why.
 
 | File | |
 |---|---|
-| `Snoop.ps1` | the whole thing — fetch, match, render |
+| `src/`, `Cargo.toml` | snoop.exe — the same fetch, match and render, in parallel, behind a local server |
+| `Snoop.ps1` | the original script — fetch, match, render |
 | `snoop.config.json` | your settings, created on first run |
 | `snoop.config.example.json` | a blank config to copy from |
 | `template.html` | the dashboard's markup, CSS and JS |

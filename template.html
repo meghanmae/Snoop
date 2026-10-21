@@ -18,9 +18,18 @@
     --pr:      #a78bfa;
     --comment: #fc8181;
     --ticket:  #4ade80;
+
+    /* Teams view. PR outcomes are categorical slots 1-4 in this order, checked
+       for colour-blind separation against --panel. */
+    --series:        #3987e5;
+    --pr-completed:  #3987e5;
+    --pr-abandoned:  #d95926;
+    --pr-active:     #199e70;
+    --pr-draft:      #c98500;
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
 
   html, body {
     margin: 0;
@@ -55,6 +64,23 @@
     margin-bottom: 2px;
   }
   .brand-sub { color: var(--dimmer); font-size: 11px; margin-bottom: 20px; }
+
+  .refresh { margin: -8px 0 22px; }
+  .refresh button {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--panel-2);
+    border: 1px solid #2e3843;
+    border-radius: 4px;
+    color: #e6edf5;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .refresh button:hover:not(:disabled) { border-color: var(--series); }
+  .refresh button:disabled { color: var(--dim); cursor: default; }
+  .refresh .status { margin-top: 6px; font-size: 11px; color: var(--dimmer); line-height: 1.5; }
+  .refresh .status.error { color: var(--comment); white-space: pre-wrap; word-break: break-word; }
 
   .group { margin-bottom: 22px; }
   .group > h4 {
@@ -190,6 +216,100 @@
   .unmatched td.who { color: var(--dim); }
 
   .empty-state { padding: 60px 22px; color: var(--dim); }
+
+  /* ---------- tabs ---------- */
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    padding: 6px 22px 0;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .tabs button {
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--dim);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 8px 14px 9px;
+    cursor: pointer;
+  }
+  .tabs button:hover { color: #fff; }
+  .tabs button.on { color: #e6edf5; border-bottom-color: var(--series); }
+
+  /* ---------- teams ---------- */
+
+  .teams { padding: 22px 22px 60px; max-width: 1500px; }
+  .teams h3 { margin: 0 0 12px; font-size: 12px; font-weight: 500; color: var(--dim); letter-spacing: .06em; }
+  .team { padding-top: 30px; margin-top: 30px; border-top: 1px solid var(--line); }
+  .team h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; color: #e6edf5; }
+  .team-sub { color: var(--dimmer); font-size: 11.5px; margin-bottom: 16px; }
+  .chip {
+    display: inline-block;
+    padding: 1px 7px;
+    margin: 0 4px 4px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--dim);
+    font-size: 11px;
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+  .tile.lead { border-color: #2b4a6e; }
+  .tile .label { font-size: 11px; color: var(--dim); }
+  .tile .value { font-size: 22px; font-weight: 600; color: #e6edf5; margin: 4px 0 2px; }
+  .tile .value small { font-size: 12px; font-weight: 400; color: var(--dim); }
+  .tile .sub { font-size: 11px; color: var(--dimmer); line-height: 1.5; }
+
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px 8px; min-width: 0; }
+  .chart h4 { margin: 0 0 2px; font-size: 12px; font-weight: 500; color: #dbe5ef; }
+  .chart .sub { font-size: 11px; color: var(--dimmer); margin-bottom: 8px; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { fill: var(--dim); font-size: 10.5px; font-family: inherit; font-variant-numeric: tabular-nums; }
+  svg .grid-line { stroke: var(--line); stroke-width: 1; }
+  svg .baseline { stroke: #34404c; stroke-width: 1; }
+  .hit rect { fill: transparent; }
+  .hit .xhair { stroke: var(--dimmer); stroke-width: 1; opacity: 0; }
+  .hit:hover .xhair { opacity: 1; }
+
+  .legend-row { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11px; color: var(--dim); margin: 0 0 10px; }
+  .legend-row span { display: inline-flex; align-items: center; gap: 6px; }
+  .key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+  .key.line { width: 14px; height: 2px; border-radius: 1px; }
+  .key.wash { opacity: .25; }
+
+  .scroll-x { overflow-x: auto; }
+  .members td.stackcell { text-align: left; min-width: 230px; }
+  .stack { display: flex; gap: 2px; height: 10px; }
+  .stack > div { height: 100%; }
+  .stack > div:first-child { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+  .stack > div:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+  .caption { font-size: 10.5px; color: var(--dimmer); margin-top: 4px; }
+  .hbar { display: inline-block; height: 8px; margin-right: 7px; vertical-align: middle; background: var(--series); border-radius: 0 4px 4px 0; }
+  .spark { display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .note { color: var(--dimmer); font-size: 11.5px; max-width: 100ch; margin: 12px 0 0; line-height: 1.6; }
+  .note b { color: var(--dim); font-weight: 500; }
+  a.teamlink { color: #9ec5e0; text-decoration: none; }
+  a.teamlink:hover { text-decoration: underline; }
+
+  .tip {
+    position: fixed;
+    z-index: 50;
+    pointer-events: none;
+    background: #1c2229;
+    border: 1px solid #2e3843;
+    border-radius: 5px;
+    color: #dbe5ef;
+    padding: 6px 9px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: pre;
+    box-shadow: 0 4px 14px rgba(0,0,0,.45);
+  }
 </style>
 </head>
 <body>
@@ -198,7 +318,23 @@
   <aside class="sidebar">
     <div class="brand">SNOOP</div>
     <div class="brand-sub" id="brandSub"></div>
+    <div class="refresh" id="refreshBox" hidden>
+      <button type="button" id="refreshBtn">Refresh</button>
+      <div class="status" id="refreshStatus"></div>
+    </div>
 
+    <div id="teamControls" hidden>
+      <div class="group">
+        <h4>Teams:</h4>
+        <div id="teamLinks"></div>
+      </div>
+      <div class="group">
+        <h4>Forecast from:</h4>
+        <div id="velocityWindow"></div>
+      </div>
+    </div>
+
+    <div id="activityControls">
     <div class="group">
       <h4>Legend:</h4>
       <div id="legend"></div>
@@ -222,6 +358,7 @@
       <label class="opt"><input type="checkbox" id="sizeToggle" checked> Size</label>
       <label class="opt"><input type="checkbox" id="hideEmpty"> Hide inactive rows</label>
     </div>
+    </div>
 
     <div class="group">
       <h4>Snapshot:</h4>
@@ -230,13 +367,20 @@
   </aside>
 
   <main class="main">
+    <nav class="tabs">
+      <button type="button" data-view="activity" class="on">Activity</button>
+      <button type="button" data-view="teams">Teams</button>
+    </nav>
     <div id="banner"></div>
-    <div class="grid" id="grid"></div>
-    <div class="summary">
-      <h3>TOTALS FOR THE WINDOW</h3>
-      <div id="summary"></div>
-    </div>
-    <div class="unmatched" id="unmatchedBox"></div>
+    <section id="activityView">
+      <div class="grid" id="grid"></div>
+      <div class="summary">
+        <h3>TOTALS FOR THE WINDOW</h3>
+        <div id="summary"></div>
+      </div>
+      <div class="unmatched" id="unmatchedBox"></div>
+    </section>
+    <section id="teamsView" class="teams" hidden></section>
   </main>
 </div>
 
@@ -579,9 +723,789 @@ document.getElementById('hideEmpty').addEventListener('change', e => {
   state.hideEmpty = e.target.checked; render();
 });
 
+/* ===========================================================================
+   Teams view
+
+   Velocity, open work and a finish forecast per team, from DATA.stats - a much
+   longer window than the grid (stats.monthsBack in the config). The arithmetic
+   lives here rather than in the script so the forecast window can be changed
+   without a re-run.
+   =========================================================================== */
+
+const STATS  = DATA.stats;
+const DAY_MS = 86400000;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const PR_STATES = [
+  { key: 'completed', label: 'Completed' },
+  { key: 'abandoned', label: 'Abandoned' },
+  { key: 'active',    label: 'Active' },
+  { key: 'draft',     label: 'Draft' }
+];
+
+const teamState = { velocitySprints: STATS ? STATS.velocitySprints : 6 };
+
+const toDate   = s => new Date(s + 'T00:00:00Z');
+const shortDay = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const longDay  = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const sum      = (xs, f = x => x) => xs.reduce((total, x) => total + f(x), 0);
+const mean     = xs => xs.length ? sum(xs) / xs.length : 0;
+const fmt      = n => n == null || !isFinite(n) ? '-' : (Math.round(n * 10) / 10).toLocaleString();
+const fmtTick  = v => v >= 1000 ? (v / 1000) + 'K' : String(Math.round(v * 10) / 10);
+const plural   = (n, word) => `${fmt(n)} ${n === 1 ? word : word.replace(/y$/, 'ie') + 's'}`;
+
+function weekdaysBetween(from, to) {
+  let n = 0;
+  for (let t = from.getTime(); t < to.getTime(); t += DAY_MS) {
+    const dow = new Date(t).getUTCDay();
+    if (dow !== 0 && dow !== 6) n++;
+  }
+  return n;
+}
+
+/* Sprints are fixed-length periods. With stats.sprintAnchorDate they line up
+   with the team's real sprints and the one in progress is kept out of the
+   average, since a half-finished sprint drags it down. Without an anchor they
+   are rolling periods ending today, so the newest one is always complete. */
+function buildSprints() {
+  const len  = STATS.sprintDays * DAY_MS;
+  const end  = toDate(STATS.to).getTime() + DAY_MS;
+  const from = toDate(STATS.from).getTime();
+
+  let edge = end;
+  if (STATS.anchor) {
+    const anchor = toDate(STATS.anchor).getTime();
+    edge = anchor + Math.floor((end - anchor) / len) * len;
+  }
+
+  const make = (start, complete) => {
+    const s = new Date(start), e = new Date(start + len);
+    return { from: s, to: e, last: new Date(start + len - DAY_MS), workdays: weekdaysBetween(s, e), complete };
+  };
+  const sprints = [];
+  for (let e = edge; e - len >= from; e -= len) sprints.unshift(make(e - len, true));
+  if (edge < end) sprints.push(make(edge, false));
+  return sprints;
+}
+
+const SPRINTS = STATS ? buildSprints() : [];
+const TODAY   = STATS ? toDate(STATS.to) : null;
+const SPRINT_WORKDAYS = (SPRINTS.find(s => s.complete) ||
+                         { workdays: Math.round((STATS ? STATS.sprintDays : 14) * 5 / 7) }).workdays;
+
+if (STATS) {
+  for (const item of STATS.items) {
+    const t = item.c ? toDate(item.c).getTime() : null;
+    item.si = t == null ? -1 : SPRINTS.findIndex(s => t >= s.from.getTime() && t < s.to.getTime());
+  }
+}
+
+function recentSprints() {
+  const complete = SPRINTS.map((s, i) => i).filter(i => SPRINTS[i].complete);
+  return teamState.velocitySprints > 0 ? complete.slice(-teamState.velocitySprints) : complete;
+}
+
+/* The range comes from the slower and faster halves of the recent sprints -
+   easier to explain than a standard deviation, and it never goes negative. */
+function forecast(values, remaining) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const half   = Math.ceil(sorted.length / 2);
+  const rates  = {
+    avg:  mean(sorted),
+    low:  mean(sorted.slice(0, half)),
+    high: mean(sorted.slice(sorted.length - half))
+  };
+  const out = { remaining, rates };
+  for (const key of Object.keys(rates)) {
+    const sprints = remaining <= 0 ? 0 : rates[key] > 0 ? remaining / rates[key] : Infinity;
+    out[key] = {
+      sprints,
+      workdays: sprints * SPRINT_WORKDAYS,
+      date: isFinite(sprints) ? new Date(TODAY.getTime() + sprints * STATS.sprintDays * DAY_MS) : null
+    };
+  }
+  return out;
+}
+
+const ITEMS_BY_ID = new Map(STATS ? STATS.items.map(i => [i.id, i]) : []);
+
+/* "CG - Story", "CG: Story", "[CG] Story" - but not "CGI story". */
+function hasTitlePrefix(title, prefix) {
+  const t = (title || '').trimStart().toLowerCase();
+  if (t.startsWith('[' + prefix + ']')) return true;
+  if (!t.startsWith(prefix)) return false;
+  return !/[a-z0-9]/.test(t.charAt(prefix.length));
+}
+
+function teamModel(team) {
+  const repos    = new Set(team.repos.map(r => r.toLowerCase()));
+  const areas    = team.areaPaths.map(a => a.toLowerCase());
+  const prefixes = (team.titlePrefixes || []).map(p => p.toLowerCase());
+  const underArea = item => {
+    const path = (item.a || '').toLowerCase();
+    return areas.some(a => path === a || path.startsWith(a + '\\'));
+  };
+  const titled = item => prefixes.some(p => hasTitlePrefix(item.t, p));
+  // A task rarely carries the prefix itself, so it goes with its story.
+  const owns = item => {
+    if (underArea(item) || titled(item)) return true;
+    const parent = item.k === 'task' && item.par != null ? ITEMS_BY_ID.get(item.par) : null;
+    return !!parent && titled(parent);
+  };
+  // Area paths or title prefixes mark out the team's own backlog; without
+  // either, the best guess is whatever its members are assigned.
+  const scoped = areas.length > 0 || prefixes.length > 0;
+
+  const prs = STATS.prs.filter(pr => repos.has(pr.r.toLowerCase()));
+
+  // Members as configured, else anyone with a PR in the team's repos (or a
+  // story in its backlog).
+  let memberIds = team.members;
+  if (!memberIds) {
+    const found = new Set(prs.map(pr => pr.p));
+    if (scoped) for (const item of STATS.items) if (item.p >= 0 && owns(item)) found.add(item.p);
+    memberIds = [...found];
+  }
+  const members = new Set(memberIds);
+
+  const items   = STATS.items.filter(item => scoped ? owns(item) : members.has(item.p));
+  const stories = items.filter(i => i.k === 'story');
+  const done    = stories.filter(i => i.g === 'Completed');
+  const open    = stories.filter(i => i.g !== 'Completed');
+  const tasks   = items.filter(i => i.k === 'task' && i.rem != null);
+
+  // Points when the team points its work, a plain story count when it doesn't.
+  // Open stories with no points count at the team's average story size.
+  const pointedDone = done.filter(i => i.pts != null);
+  const unit      = pointedDone.length ? 'pts' : 'stories';
+  const avgSize   = pointedDone.length ? mean(pointedDone.map(i => i.pts)) : 1;
+  const doneValue = i => unit === 'pts' ? (i.pts || 0) : 1;
+  const openValue = i => unit === 'pts' ? (i.pts != null ? i.pts : avgSize) : 1;
+
+  const bySprint = list => SPRINTS.map((s, idx) => sum(list.filter(i => i.si === idx), doneValue));
+  const recent   = recentSprints();
+
+  const velocity  = bySprint(done);
+  const remaining = sum(open, openValue);
+  const fc        = forecast(recent.map(i => velocity[i]), remaining);
+
+  const people = memberIds.map(id => {
+    const myPrs       = prs.filter(pr => pr.p === id);
+    const myDone      = done.filter(i => i.p === id);
+    const myOpen      = open.filter(i => i.p === id);
+    const myPointed   = myDone.filter(i => i.pts != null);
+    const mySprints   = bySprint(myDone);
+    const myVelocity  = mean(recent.map(i => mySprints[i]));
+    const myRemaining = sum(myOpen, openValue);
+    return {
+      id,
+      name:      (peopleById.get(id) || { name: 'Unknown' }).name,
+      prs:       Object.fromEntries(PR_STATES.map(s => [s.key, myPrs.filter(pr => pr.s === s.key).length])),
+      prTotal:   myPrs.length,
+      done:      myDone.length,
+      points:    sum(myPointed, i => i.pts),
+      avgPoints: myPointed.length ? mean(myPointed.map(i => i.pts)) : null,
+      sprints:   mySprints,
+      velocity:  myVelocity,
+      open:      myOpen.length,
+      remaining: myRemaining,
+      workdays:  myRemaining <= 0 ? 0 : myVelocity > 0 ? myRemaining / myVelocity * SPRINT_WORKDAYS : Infinity,
+      taskHours: sum(tasks.filter(t => t.p === id), t => t.rem)
+    };
+  }).sort((a, b) => b.velocity - a.velocity || a.name.localeCompare(b.name));
+
+  return {
+    team, unit, avgSize, prs, people, done, open, velocity, recent, remaining,
+    forecast:      fc,
+    closedCount:   SPRINTS.map((s, idx) => done.filter(i => i.si === idx).length),
+    contributors:  people.filter(p => p.velocity > 0).length,
+    openUnpointed: open.filter(i => i.pts == null).length,
+    byCategory:    Object.fromEntries(['Proposed', 'InProgress', 'Resolved']
+                     .map(g => [g, sum(open.filter(i => i.g === g), openValue)])),
+    taskHours:     sum(tasks, t => t.rem)
+  };
+}
+
+/* ---------- chart pieces ---------- */
+
+function svg(tag, attrs, text) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) node.setAttribute(k, attrs[k]);
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function niceScale(max, count = 4) {
+  if (!(max > 0)) return { top: count, step: 1 };
+  const raw  = max / count;
+  const mag  = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw);
+  return { top: Math.ceil(max / step) * step, step };
+}
+
+function yAxis(root, scale, y, left, right) {
+  for (let v = 0; v <= scale.top + 1e-9; v += scale.step) {
+    const py = y(v);
+    root.appendChild(svg('line', { x1: left, x2: right, y1: py, y2: py, class: v === 0 ? 'baseline' : 'grid-line' }));
+    root.appendChild(svg('text', { x: left - 6, y: py + 3.5, 'text-anchor': 'end' }, fmtTick(v)));
+  }
+}
+
+/* A column with a 4px rounded cap and a square foot on the baseline. */
+function columnPath(x, y, w, h) {
+  const r = Math.min(4, w / 2, h);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+
+function chartBox(title, sub, legend) {
+  const box = el('div', 'chart');
+  box.appendChild(el('h4', null, title));
+  box.appendChild(el('div', 'sub', sub));
+  if (legend) {
+    const row = el('div', 'legend-row');
+    for (const item of legend) {
+      const span = el('span');
+      const key = el('i', 'key' + (item.line ? ' line' : '') + (item.wash ? ' wash' : ''));
+      key.style.background = item.color;
+      if (item.opacity) key.style.opacity = item.opacity;
+      span.appendChild(key);
+      span.appendChild(document.createTextNode(item.label));
+      row.appendChild(span);
+    }
+    box.appendChild(row);
+  }
+  return box;
+}
+
+const CHART = { W: 580, H: 230, l: 38, r: 52, t: 16, b: 26 };
+
+function velocityChart(model) {
+  const { W, H } = CHART;
+  const plotW = W - CHART.l - CHART.r, plotH = H - CHART.t - CHART.b;
+  const recent = new Set(model.recent);
+  const avg    = model.forecast.rates.avg;
+  const scale  = niceScale(Math.max(...model.velocity, avg, 1));
+  const y      = v => CHART.t + plotH - (v / scale.top) * plotH;
+
+  const box = chartBox(`Velocity (${model.unit} closed per sprint)`,
+    `${STATS.sprintDays}-day sprints. Solid columns feed the forecast; faded ones are older` +
+    (SPRINTS.some(s => !s.complete) ? ', and the palest is the sprint in progress.' : '.'));
+  const root = svg('svg', { viewBox: `0 0 ${W} ${H}` });
+  yAxis(root, scale, y, CHART.l, W - CHART.r);
+
+  const band       = plotW / Math.max(SPRINTS.length, 1);
+  const barW       = Math.min(24, band * 0.62);
+  const labelEvery = Math.ceil(46 / band);
+
+  SPRINTS.forEach((s, i) => {
+    const x0 = CHART.l + i * band;
+    const v  = model.velocity[i];
+    const tip = `${shortDay(s.from)} - ${shortDay(s.last)}${s.complete ? '' : ' (in progress)'}\n` +
+                `${fmt(v)} ${model.unit} - ${plural(model.closedCount[i], 'story')} closed` +
+                (recent.has(i) ? '\nUsed in the forecast' : '');
+    const g = svg('g', { class: 'hit', 'data-tip': tip });
+    g.appendChild(svg('rect', { x: x0, y: CHART.t, width: band, height: plotH }));
+    if (v > 0) {
+      g.appendChild(svg('path', {
+        d: columnPath(x0 + (band - barW) / 2, y(v), barW, y(0) - y(v)),
+        fill: 'var(--series)',
+        'fill-opacity': !s.complete ? 0.28 : recent.has(i) ? 1 : 0.45
+      }));
+    }
+    root.appendChild(g);
+    if ((SPRINTS.length - 1 - i) % labelEvery === 0) {
+      root.appendChild(svg('text', { x: x0 + band / 2, y: H - 8, 'text-anchor': 'middle' },
+        s.complete ? shortDay(s.from) : 'now'));
+    }
+  });
+
+  if (model.recent.length && avg > 0) {
+    const x1 = CHART.l + model.recent[0] * band;
+    const x2 = CHART.l + (model.recent[model.recent.length - 1] + 1) * band;
+    root.appendChild(svg('line', { x1, x2, y1: y(avg), y2: y(avg), stroke: 'var(--text)', 'stroke-width': 1, 'pointer-events': 'none' }));
+    // Labelled in the right margin, where no column can sit on it.
+    root.appendChild(svg('line', { x1: x2, x2: W - CHART.r + 4, y1: y(avg), y2: y(avg), stroke: 'var(--text)', 'stroke-width': 1, 'stroke-opacity': 0.35 }));
+    root.appendChild(svg('text', { x: W - CHART.r + 7, y: y(avg) + 3.5, fill: 'var(--text)' }, `avg ${fmt(avg)}`));
+  }
+
+  box.appendChild(root);
+  return box;
+}
+
+/* Burn-up: what has been closed so far, against a flat line for everything
+   closed plus everything still open today, with the forecast running forward
+   from today at the average velocity and inside the slow-fast range. */
+function burnupChart(model) {
+  const { W, H } = CHART;
+  const plotW = W - CHART.l - CHART.r, plotH = H - CHART.t - CHART.b;
+  const fc    = model.forecast;
+  const len   = STATS.sprintDays * DAY_MS;
+  const now   = TODAY.getTime() + DAY_MS;
+  const start = SPRINTS.length ? SPRINTS[0].from.getTime() : TODAY.getTime();
+
+  let running = 0;
+  const history = [{ t: start, v: 0 }];
+  SPRINTS.forEach((s, i) => {
+    running += model.velocity[i];
+    history.push({ t: Math.min(s.to.getTime(), now), v: running, s });
+  });
+  const doneNow = running;
+  const scope   = doneNow + fc.remaining;
+
+  // Run the chart out to the slow-case finish, within reason.
+  const maxFuture = 26;
+  const slow      = isFinite(fc.low.sprints) ? fc.low.sprints : maxFuture;
+  const end       = now + Math.max(1, Math.min(maxFuture, Math.ceil(slow))) * len;
+
+  const scale = niceScale(Math.max(scope, 1));
+  const x = t => CHART.l + (t - start) / (end - start) * plotW;
+  const y = v => CHART.t + plotH - (v / scale.top) * plotH;
+  const at   = rate => t => rate > 0 ? Math.min(scope, doneNow + rate * (t - now) / len) : doneNow;
+  const hits = rate => rate > 0 ? now + (scope - doneNow) / rate * len : Infinity;
+
+  const box = chartBox(`Burn-up and forecast (${model.unit})`,
+    'Scope is what is closed plus what is open today - work added later will push the finish out.',
+    [
+      { label: 'Closed', color: 'var(--series)', line: true },
+      { label: 'Forecast at average velocity', color: 'var(--series)', line: true, opacity: 0.5 },
+      { label: 'Slow to fast range', color: 'var(--series)', wash: true },
+      { label: 'Scope today', color: 'var(--dim)', line: true }
+    ]);
+  const root = svg('svg', { viewBox: `0 0 ${W} ${H}` });
+  yAxis(root, scale, y, CHART.l, W - CHART.r);
+
+  // Hover strips, one per sprint past and future, each reading out its end.
+  const strips = [...history.slice(1).map(h => ({ t: h.t, past: true, v: h.v, s: h.s }))];
+  for (let t = now + len; t <= end + 1; t += len) strips.push({ t, past: false });
+  strips.forEach((strip, i) => {
+    const left = i === 0 ? start : strips[i - 1].t;
+    const tip = strip.past
+      ? `${shortDay(strip.s.from)} - ${shortDay(new Date(strip.t - DAY_MS))}\n${fmt(strip.v)} ${model.unit} closed since ${shortDay(new Date(start))}`
+      : `By ${longDay(new Date(strip.t))} (forecast)\n` +
+        `${fmt(at(fc.rates.avg)(strip.t))} of ${fmt(scope)} ${model.unit} at average velocity\n` +
+        `range ${fmt(at(fc.rates.low)(strip.t))} - ${fmt(at(fc.rates.high)(strip.t))}`;
+    const g = svg('g', { class: 'hit', 'data-tip': tip });
+    g.appendChild(svg('rect', { x: x(left), y: CHART.t, width: Math.max(0, x(strip.t) - x(left)), height: plotH }));
+    g.appendChild(svg('line', { class: 'xhair', x1: x(strip.t), x2: x(strip.t), y1: CHART.t, y2: CHART.t + plotH }));
+    root.appendChild(g);
+  });
+
+  const noHit = { 'pointer-events': 'none' };
+
+  // Scope and today.
+  root.appendChild(svg('line', { x1: CHART.l, x2: W - CHART.r, y1: y(scope), y2: y(scope), stroke: 'var(--dim)', 'stroke-width': 1, ...noHit }));
+  root.appendChild(svg('text', { x: CHART.l + 4, y: y(scope) - 5, ...noHit }, `scope ${fmt(scope)}`));
+  root.appendChild(svg('line', { x1: x(now), x2: x(now), y1: CHART.t, y2: CHART.t + plotH, class: 'grid-line', ...noHit }));
+  root.appendChild(svg('text', { x: x(now), y: CHART.t - 4, 'text-anchor': 'middle', ...noHit }, 'today'));
+
+  // Forecast range and line.
+  if (fc.remaining > 0 && fc.rates.high > 0) {
+    const hi = at(fc.rates.high), lo = at(fc.rates.low);
+    const hHi = Math.min(hits(fc.rates.high), end), hLo = Math.min(hits(fc.rates.low), end);
+    const poly = [[now, doneNow], [hHi, hi(hHi)], [end, hi(end)], [end, lo(end)], [hLo, lo(hLo)]]
+      .map(([t, v]) => `${x(t)},${y(v)}`).join(' ');
+    root.appendChild(svg('polygon', { points: poly, fill: 'var(--series)', 'fill-opacity': 0.12, ...noHit }));
+
+    const avgAt = at(fc.rates.avg), hAvg = Math.min(hits(fc.rates.avg), end);
+    root.appendChild(svg('line', {
+      x1: x(now), y1: y(doneNow), x2: x(hAvg), y2: y(avgAt(hAvg)),
+      stroke: 'var(--series)', 'stroke-opacity': 0.5, 'stroke-width': 2, 'stroke-linecap': 'round', ...noHit
+    }));
+    if (fc.avg.date && hits(fc.rates.avg) <= end) {
+      root.appendChild(svg('circle', { cx: x(hAvg), cy: y(scope), r: 4.5, fill: 'var(--series)', stroke: 'var(--panel)', 'stroke-width': 2, ...noHit }));
+      // Above the scope line: the forecast line arrives from below.
+      root.appendChild(svg('text', {
+        x: x(hAvg), y: y(scope) - 9, 'text-anchor': 'middle', fill: '#e6edf5', ...noHit
+      }, `~${shortDay(fc.avg.date)}`));
+    }
+  }
+
+  // What has actually been closed.
+  root.appendChild(svg('polyline', {
+    points: history.map(h => `${x(h.t)},${y(h.v)}`).join(' '),
+    fill: 'none', stroke: 'var(--series)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', ...noHit
+  }));
+  root.appendChild(svg('circle', { cx: x(now), cy: y(doneNow), r: 4.5, fill: 'var(--series)', stroke: 'var(--panel)', 'stroke-width': 2, ...noHit }));
+
+  // Date ticks.
+  for (let i = 0; i <= 4; i++) {
+    const t = start + (end - start) * i / 4;
+    root.appendChild(svg('text', {
+      x: x(t), y: H - 8, 'text-anchor': i === 0 ? 'start' : i === 4 ? 'end' : 'middle'
+    }, shortDay(new Date(t))));
+  }
+
+  box.appendChild(root);
+  return box;
+}
+
+function sparkline(values, max) {
+  const W = 84, H = 22, pad = 4;
+  const root = svg('svg', { class: 'spark', width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+  if (values.length < 2) return root;
+  const x = i => pad + i * (W - 2 * pad) / (values.length - 1);
+  const y = v => H - pad - (max > 0 ? v / max : 0) * (H - 2 * pad);
+  root.appendChild(svg('line', { x1: pad, x2: W - pad, y1: H - pad, y2: H - pad, class: 'grid-line' }));
+  root.appendChild(svg('polyline', {
+    points: values.map((v, i) => `${x(i)},${y(v)}`).join(' '),
+    fill: 'none', stroke: 'var(--series)', 'stroke-width': 1.5, 'stroke-linejoin': 'round'
+  }));
+  const last = values.length - 1;
+  root.appendChild(svg('circle', { cx: x(last), cy: y(values[last]), r: 3, fill: 'var(--series)', stroke: 'var(--bg)', 'stroke-width': 1.5 }));
+  return root;
+}
+
+/* ---------- team sections ---------- */
+
+function tile(label, value, unit, sub, lead) {
+  const box = el('div', 'tile' + (lead ? ' lead' : ''));
+  box.appendChild(el('div', 'label', label));
+  const v = el('div', 'value', value);
+  if (unit) { v.appendChild(document.createTextNode(' ')); v.appendChild(el('small', null, unit)); }
+  box.appendChild(v);
+  if (sub) box.appendChild(el('div', 'sub', sub));
+  return box;
+}
+
+function finishText(fc) {
+  if (fc.remaining <= 0) return { value: 'Nothing open', sub: '' };
+  if (!fc.avg.date) return { value: 'No forecast', sub: 'nothing closed in the forecast sprints' };
+  const slow = fc.low.date ? longDay(fc.low.date) : 'never at the slow pace';
+  return {
+    value: longDay(fc.avg.date),
+    sub: `~${fmt(Math.ceil(fc.avg.workdays))} working days (${fmt(fc.avg.sprints)} sprints)\n` +
+         `range ${shortDay(fc.high.date)} - ${slow}`
+  };
+}
+
+function renderTeamSection(model, index) {
+  const { team, forecast: fc, unit } = model;
+  const section = el('section', 'team');
+  section.id = 'team-' + index;
+
+  section.appendChild(el('h2', null, team.name));
+  const sub = el('div', 'team-sub');
+  for (const repo of team.repos) sub.appendChild(el('span', 'chip', repo));
+  for (const area of team.areaPaths) sub.appendChild(el('span', 'chip', area));
+  for (const prefix of team.titlePrefixes || []) sub.appendChild(el('span', 'chip', `"${prefix} - ..."`));
+  sub.appendChild(document.createTextNode(` ${plural(model.people.length, 'member')}`));
+  section.appendChild(sub);
+
+  const k = model.recent.length;
+  const tiles = el('div', 'tiles');
+  tiles.appendChild(tile('Velocity', fmt(fc.rates.avg), `${unit} / sprint`,
+    `last ${plural(k, 'sprint')} - slow ${fmt(fc.rates.low)}, fast ${fmt(fc.rates.high)}`));
+
+  const unpointed = unit === 'pts' && model.openUnpointed
+    ? `\n${model.openUnpointed} unpointed, counted at ~${fmt(model.avgSize)} pts each` : '';
+  tiles.appendChild(tile('Open work', fmt(model.remaining), unit,
+    `${plural(model.open.length, 'story')}: ${fmt(model.byCategory.Proposed)} not started, ` +
+    `${fmt(model.byCategory.InProgress)} in progress, ${fmt(model.byCategory.Resolved)} resolved${unpointed}`));
+
+  const finish = finishText(fc);
+  tiles.appendChild(tile('Likely finish', finish.value, '', finish.sub, true));
+
+  const devDays = fc.avg.workdays * model.contributors;
+  tiles.appendChild(tile('Effort left', isFinite(devDays) && model.contributors ? fmt(Math.ceil(devDays)) : '-', 'dev-days',
+    `${model.contributors} ${model.contributors === 1 ? 'person' : 'people'} closing work at the current pace`));
+
+  if (model.taskHours > 0) {
+    tiles.appendChild(tile('Task estimates', fmt(model.taskHours), 'h left',
+      `~${fmt(Math.ceil(model.taskHours / STATS.hoursPerDay))} dev-days at ${STATS.hoursPerDay} h/day, from Remaining Work on open tasks`));
+  }
+
+  const prCount = s => model.prs.filter(pr => pr.s === s).length;
+  tiles.appendChild(tile('Pull requests', fmt(prCount('active') + prCount('draft')), 'open',
+    `${prCount('draft')} drafts - ${prCount('completed')} completed, ${prCount('abandoned')} abandoned since ${longDay(toDate(STATS.from))}`));
+  section.appendChild(tiles);
+
+  const charts = el('div', 'charts');
+  charts.appendChild(velocityChart(model));
+  charts.appendChild(burnupChart(model));
+  section.appendChild(charts);
+
+  section.appendChild(el('h3', null, 'MEMBERS'));
+  const legend = el('div', 'legend-row');
+  for (const s of PR_STATES) {
+    const span = el('span');
+    const key = el('i', 'key');
+    key.style.background = `var(--pr-${s.key})`;
+    span.appendChild(key);
+    span.appendChild(document.createTextNode(s.label + ' PRs'));
+    legend.appendChild(span);
+  }
+  section.appendChild(legend);
+  section.appendChild(membersTable(model));
+
+  const note = el('p', 'note');
+  note.innerHTML =
+    `<b>How this is worked out.</b> Velocity is ${unit === 'pts' ? 'story points' : 'stories (nothing here is pointed)'} ` +
+    `closed per ${STATS.sprintDays}-day sprint, averaged over the last ${plural(k, 'sprint')}; ` +
+    `the range uses the slower and faster halves of those sprints. Open work divided by velocity gives the sprints left. ` +
+    `Dev-days multiply that by the people currently closing work, and a person's "days to clear" is their own open work at their own pace. ` +
+    (team.areaPaths.length || (team.titlePrefixes || []).length
+      ? 'The backlog is every open story ' +
+        [team.areaPaths.length ? 'under this team\'s area paths' : '',
+         (team.titlePrefixes || []).length ? `titled ${team.titlePrefixes.map(p => `"${p} - ..."`).join(' or ')}` : '']
+          .filter(Boolean).join(' or ') +
+        ', assigned or not; tasks go with their story. '
+      : 'The backlog is the open stories assigned to these members, so unassigned stories aren\'t counted. ' +
+        'Add <code>titlePrefixes</code> or <code>areaPaths</code> to this team to include them. ') +
+    (team.members ? '' : 'Members are everyone with a PR in these repos since the stats window began. ') +
+    'PR counts cover PRs opened in these repos since then, plus any still open.';
+  section.appendChild(note);
+  return section;
+}
+
+function membersTable(model) {
+  const unit   = model.unit;
+  const maxPr  = Math.max(1, ...model.people.map(p => p.prTotal));
+  const maxPts = Math.max(1, ...model.people.map(p => p.points));
+  const maxSpark = Math.max(1, ...model.people.flatMap(p => p.sprints.filter((v, i) => SPRINTS[i].complete)));
+
+  const table = el('table', 'members');
+  const head = el('tr');
+  [['Person', 'who'], ['Pull requests', 'who'], ['Open drafts'], ['Stories closed'], ['Points closed'],
+   ['Avg pts / story'], [`Velocity (${unit} / sprint)`, 'who'], ['Open stories'], [`Open ${unit}`],
+   ['Days to clear'], ['Task hrs left']]
+    .forEach(([label, cls]) => head.appendChild(el('th', cls || null, label)));
+  const thead = el('thead'); thead.appendChild(head); table.appendChild(thead);
+
+  const num = (tr, n, text) => tr.appendChild(el('td', n ? null : 'zero', text != null ? text : fmt(n)));
+  const body = el('tbody');
+
+  for (const p of model.people) {
+    const tr = el('tr');
+    tr.appendChild(el('td', 'who', p.name));
+
+    // PRs: bar length is volume against the busiest member, segments are outcomes.
+    const prCell = el('td', 'stackcell');
+    if (p.prTotal) {
+      const pct = n => Math.round(100 * n / p.prTotal);
+      prCell.dataset.tip = PR_STATES.map(s => `${s.label}: ${p.prs[s.key]} (${pct(p.prs[s.key])}%)`).join('\n');
+      const row = el('div');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '7px';
+      const stack = el('div', 'stack');
+      stack.style.width = Math.max(6, 150 * p.prTotal / maxPr) + 'px';
+      for (const s of PR_STATES) {
+        const n = p.prs[s.key];
+        if (!n) continue;
+        const seg = el('div');
+        seg.style.flex = String(n);
+        seg.style.background = `var(--pr-${s.key})`;
+        seg.dataset.tip = `${s.label}: ${n} of ${p.prTotal} (${pct(n)}%)`;
+        stack.appendChild(seg);
+      }
+      row.appendChild(stack);
+      row.appendChild(el('span', null, p.prTotal));
+      prCell.appendChild(row);
+      prCell.appendChild(el('div', 'caption',
+        `${pct(p.prs.completed)}% completed - ${pct(p.prs.abandoned)}% abandoned - ${pct(p.prs.active + p.prs.draft)}% open`));
+    } else {
+      prCell.appendChild(el('span', 'caption', 'no PRs'));
+    }
+    tr.appendChild(prCell);
+
+    num(tr, p.prs.draft);
+    num(tr, p.done);
+
+    const ptsCell = el('td', p.points ? null : 'zero');
+    if (p.points) {
+      const bar = el('span', 'hbar');
+      bar.style.width = Math.max(2, 70 * p.points / maxPts) + 'px';
+      ptsCell.appendChild(bar);
+    }
+    ptsCell.appendChild(document.createTextNode(fmt(p.points)));
+    tr.appendChild(ptsCell);
+
+    num(tr, p.avgPoints);
+
+    const velCell = el('td', 'who');
+    const complete = p.sprints.filter((v, i) => SPRINTS[i].complete);
+    velCell.appendChild(sparkline(complete, maxSpark));
+    velCell.appendChild(document.createTextNode(fmt(p.velocity)));
+    velCell.dataset.tip = SPRINTS.map((s, i) => `${shortDay(s.from)}${s.complete ? '' : ' (now)'}: ${fmt(p.sprints[i])}`).join('\n');
+    tr.appendChild(velCell);
+
+    num(tr, p.open);
+    num(tr, p.remaining);
+    num(tr, p.workdays, p.remaining <= 0 ? '-' : isFinite(p.workdays) ? fmt(Math.ceil(p.workdays)) : 'no pace yet');
+    num(tr, p.taskHours);
+    body.appendChild(tr);
+  }
+  table.appendChild(body);
+
+  const wrap = el('div', 'scroll-x');
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function renderTeamOverview(models) {
+  const box = el('div');
+  box.appendChild(el('h3', null, `ALL TEAMS - STATS SINCE ${longDay(toDate(STATS.from)).toUpperCase()}`));
+
+  const table = el('table');
+  const head = el('tr');
+  [['Team', 'who'], ['Members'], ['Velocity / sprint'], ['Open work'], ['Working days left'],
+   ['Likely finish'], ['Fast - slow'], ['Open PRs'], ['Drafts']]
+    .forEach(([label, cls]) => head.appendChild(el('th', cls || null, label)));
+  const thead = el('thead'); thead.appendChild(head); table.appendChild(thead);
+
+  const body = el('tbody');
+  models.forEach((model, index) => {
+    const fc = model.forecast;
+    const tr = el('tr');
+    const who = el('td', 'who');
+    const link = el('a', 'teamlink', model.team.name);
+    link.href = '#team-' + index;
+    link.addEventListener('click', e => { e.preventDefault(); document.getElementById('team-' + index).scrollIntoView({ behavior: 'smooth' }); });
+    who.appendChild(link);
+    tr.appendChild(who);
+    tr.appendChild(el('td', null, model.people.length));
+    tr.appendChild(el('td', null, `${fmt(fc.rates.avg)} ${model.unit}`));
+    tr.appendChild(el('td', null, `${fmt(model.remaining)} ${model.unit}`));
+    tr.appendChild(el('td', null, fc.remaining <= 0 ? '-' : isFinite(fc.avg.workdays) ? fmt(Math.ceil(fc.avg.workdays)) : 'no pace yet'));
+    tr.appendChild(el('td', null, fc.avg.date ? longDay(fc.avg.date) : '-'));
+    tr.appendChild(el('td', null, fc.high.date && fc.remaining > 0
+      ? `${shortDay(fc.high.date)} - ${fc.low.date ? shortDay(fc.low.date) : '?'}` : '-'));
+    const prs = s => model.prs.filter(pr => pr.s === s).length;
+    tr.appendChild(el('td', null, prs('active') + prs('draft')));
+    tr.appendChild(el('td', null, prs('draft')));
+    body.appendChild(tr);
+  });
+  table.appendChild(body);
+
+  const wrap = el('div', 'scroll-x');
+  wrap.appendChild(table);
+  box.appendChild(wrap);
+  return box;
+}
+
+function renderTeams() {
+  const view = document.getElementById('teamsView');
+  view.innerHTML = '';
+  if (!STATS) {
+    view.appendChild(el('div', 'empty-state', 'Team stats were skipped for this run (-SkipTeamStats).'));
+    return;
+  }
+
+  const models = STATS.teams.map(teamModel);
+  view.appendChild(renderTeamOverview(models));
+  models.forEach((model, index) => view.appendChild(renderTeamSection(model, index)));
+
+  const links = document.getElementById('teamLinks');
+  links.innerHTML = '';
+  models.forEach((model, index) => {
+    const link = el('a', 'teamlink', model.team.name);
+    link.href = '#team-' + index;
+    link.style.display = 'block';
+    link.style.padding = '3px 0';
+    link.addEventListener('click', e => { e.preventDefault(); document.getElementById('team-' + index).scrollIntoView({ behavior: 'smooth' }); });
+    links.appendChild(link);
+  });
+}
+
+function renderVelocityWindow() {
+  const box = document.getElementById('velocityWindow');
+  if (!STATS) return;
+  const choices = [...new Set([3, 6, STATS.velocitySprints])].filter(n => n > 0).sort((a, b) => a - b);
+  for (const n of [...choices, 0]) {
+    const label = el('label', 'opt');
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'velocityWindow';
+    input.checked = n === teamState.velocitySprints;
+    input.addEventListener('change', () => { teamState.velocitySprints = n; renderTeams(); });
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(n ? `Last ${n} sprints` : 'Every sprint in the window'));
+    box.appendChild(label);
+  }
+}
+
+/* ---------- tabs and tooltip ---------- */
+
+function showView(view) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
+  document.getElementById('activityView').hidden     = view !== 'activity';
+  document.getElementById('activityControls').hidden = view !== 'activity';
+  document.getElementById('teamsView').hidden        = view !== 'teams';
+  document.getElementById('teamControls').hidden     = view !== 'teams';
+  history.replaceState(null, '', '#' + view);
+  // The grid pins its band heights after layout, which needs it on screen.
+  if (view === 'activity') render();
+}
+
+document.querySelectorAll('.tabs button').forEach(button =>
+  button.addEventListener('click', () => showView(button.dataset.view)));
+
+const tooltip = el('div', 'tip');
+tooltip.hidden = true;
+document.body.appendChild(tooltip);
+document.addEventListener('mousemove', e => {
+  const target = e.target.closest && e.target.closest('[data-tip]');
+  if (!target) { tooltip.hidden = true; return; }
+  tooltip.textContent = target.getAttribute('data-tip');
+  tooltip.hidden = false;
+  const pad = 14, box = tooltip.getBoundingClientRect();
+  let left = e.clientX + pad, top = e.clientY + pad;
+  if (left + box.width > innerWidth - 8)  left = e.clientX - box.width - pad;
+  if (top + box.height > innerHeight - 8) top = e.clientY - box.height - pad;
+  tooltip.style.left = left + 'px';
+  tooltip.style.top  = top + 'px';
+});
+
+/* ---------- refresh (only when snoop.exe is serving the page) ---------- */
+
+function setupRefresh() {
+  if (!location.protocol.startsWith('http')) return;   // a saved snoop.html has nothing to call
+  const box = document.getElementById('refreshBox');
+  const button = document.getElementById('refreshBtn');
+  const line = document.getElementById('refreshStatus');
+  box.hidden = false;
+
+  const meta = DATA.meta;
+  const idle = () => {
+    line.className = 'status';
+    line.textContent = `Updated ${meta.generated.slice(11)}` +
+      (meta.requests ? ` - ${meta.requests} requests, ${meta.seconds}s` : '');
+  };
+  idle();
+
+  async function poll() {
+    let s;
+    try { s = await (await fetch('/api/status')).json(); }
+    catch (e) { line.textContent = 'Snoop is not running.'; button.disabled = false; return; }
+    if (s.running) {
+      button.disabled = true;
+      button.textContent = 'Refreshing...';
+      line.className = 'status';
+      line.textContent = `${s.requests} requests, ${s.seconds}s`;
+      setTimeout(poll, 700);
+      return;
+    }
+    button.disabled = false;
+    button.textContent = 'Refresh';
+    if (s.error) { line.className = 'status error'; line.textContent = s.error; return; }
+    if (s.generated && s.generated !== String(meta.run)) location.reload();
+    else idle();
+  }
+
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    await fetch('/api/refresh', { method: 'POST' }).catch(() => {});
+    poll();
+  });
+  poll();   // picks up a refresh that was already running when the page loaded
+}
+
 renderChrome();
 renderLegend();
-render();
+setupRefresh();
+renderVelocityWindow();
+renderTeams();
+showView(location.hash === '#teams' ? 'teams' : 'activity');
 </script>
 </body>
 </html>

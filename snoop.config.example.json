@@ -21,5 +21,30 @@
   "prLookbackDays": 90,
   "includeAllBranches": true,
   "maxBranches": 50,
-  "includeWeekends": false
+  "includeWeekends": false,
+
+  "teams": {
+    "Billing": [
+      "Contoso.Web.Billing",
+      "Contoso.Api.Billing",
+      "Contoso.Mobile.Billing"
+    ],
+    "Scheduling": {
+      "repositories": [ "Contoso.Web.Scheduling", "Contoso.Api.Scheduling" ],
+      "titlePrefixes": [ "SCH" ]
+    },
+    "Docs": [
+      "Contoso.Web.Docs",
+      "Contoso.Api.Docs"
+    ]
+  },
+
+  "stats": {
+    "monthsBack": 6,
+    "sprintLengthDays": 14,
+    "sprintAnchorDate": "",
+    "velocitySprints": 6,
+    "storyTypes": [ "User Story", "Product Backlog Item", "Story" ],
+    "hoursPerDevDay": 6
+  }
 }

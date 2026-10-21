@@ -5,3 +5,6 @@ snoop.html
 snoop.config.json
 *.config.json
 !snoop.config.example.json
+
+# Rust build output
+/target

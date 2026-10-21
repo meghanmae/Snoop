@@ -48,6 +48,7 @@ param(
     [switch]   $DefaultBranchOnly,
     [switch]   $SkipWorkItems,
     [switch]   $SkipPrComments,
+    [switch]   $SkipTeamStats,
     [switch]   $NoOpen
 )
 
@@ -81,6 +82,19 @@ $DefaultConfig = [ordered]@{
     includeAllBranches  = $true
     maxBranches         = 50
     includeWeekends     = $false
+    # Team name -> its repos (or { repositories, areaPaths, members }). Empty
+    # means one team made of everyone on the roster.
+    teams               = [ordered]@{}
+    # The Teams view reaches back much further than daysBack: velocity and
+    # forecasts need months of closed stories, not a fortnight.
+    stats               = [ordered]@{
+        monthsBack       = 6
+        sprintLengthDays = 14
+        sprintAnchorDate = ''          # any sprint's first day, to line up with real sprints
+        velocitySprints  = 6           # how many recent sprints the forecast averages
+        storyTypes       = @('User Story', 'Product Backlog Item', 'Story')
+        hoursPerDevDay   = 6           # converts task Remaining Work hours into dev-days
+    }
 }
 
 if (-not $ConfigFile) { $ConfigFile = Join-Path $PSScriptRoot 'snoop.config.json' }
@@ -144,7 +158,7 @@ $WorkItemOrg = $WorkItemOrganization
 if (-not $WorkItemOrg) { $WorkItemOrg = Get-SubSetting $workItemConfig 'organization' }
 if (-not $WorkItemOrg) { $WorkItemOrg = $Organization }
 
-$WorkItemProjects = @($WorkItemProject)
+$WorkItemProjects = @($WorkItemProject | Where-Object { $_ })   # @($null) would count as one blank project
 if ($WorkItemProjects.Count -eq 0) { $WorkItemProjects = @(Get-SubSetting $workItemConfig 'projects' | Where-Object { $_ }) }
 if ($WorkItemProjects.Count -eq 0) { $WorkItemProjects = @($Project) }
 
@@ -443,7 +457,7 @@ foreach ($repo in $Repository) {
 $PullRequests = @{}
 
 function Add-PullRequests {
-    param([string] $Repo, [string] $Query)
+    param([string] $Repo, [string] $Query, [hashtable] $Into = $PullRequests)
     $repoSeg = [uri]::EscapeDataString($Repo)
     $skip    = 0
     $page    = 500
@@ -453,8 +467,8 @@ function Add-PullRequests {
         $batch  = @($result.value)
         foreach ($pr in $batch) {
             $key = "$Repo|$($pr.pullRequestId)"
-            if (-not $PullRequests.ContainsKey($key)) {
-                $PullRequests[$key] = [pscustomobject]@{ Repo = $Repo; Pr = $pr }
+            if (-not $Into.ContainsKey($key)) {
+                $Into[$key] = [pscustomobject]@{ Repo = $Repo; Pr = $pr }
             }
         }
         $skip += $page
@@ -815,6 +829,262 @@ foreach ($identity in $Identities.Values) {
 }
 
 # ---------------------------------------------------------------------------
+# Team stats
+#
+# The activity grid looks at a fortnight; velocity and "when will this be done"
+# need months. So this pass reaches back stats.monthsBack, pulling every PR
+# created since then and every story/task still open or closed since then. The
+# page does the arithmetic - this only ships the records, tied to roster ids.
+# ---------------------------------------------------------------------------
+
+$statsConfig = Get-Setting 'stats' $null
+function Get-StatsSetting {
+    param([string] $Key)
+    $value = Get-SubSetting $statsConfig $Key
+    if ($null -eq $value -or ($value -is [string] -and $value -eq '')) { return $DefaultConfig.stats[$Key] }
+    return $value
+}
+
+$PersonCache = @{}
+function Find-PersonId {
+    <# The grid's rules - alias, whole name, then nickname/handle guess - for
+       identities that only turn up in the longer stats window. -1 if nobody. #>
+    param([string] $Name, [string] $Email)
+    $cacheKey = "$Name|$Email"
+    if ($IdentityMap.ContainsKey($cacheKey)) { return $IdentityMap[$cacheKey] }
+    if ($PersonCache.ContainsKey($cacheKey)) { return $PersonCache[$cacheKey] }
+
+    $resolved = -1
+    foreach ($candidate in @($Name, $Email)) {
+        if ($candidate -and $Aliases.ContainsKey($candidate)) {
+            $target = $Roster | Where-Object { $_.Name -eq $Aliases[$candidate] } | Select-Object -First 1
+            if ($target) { $resolved = $target.Id; break }
+        }
+    }
+    if ($resolved -lt 0) {
+        $identity = [pscustomobject]@{ Keys = (Get-NameKeys -Name $Name -Email $Email) }
+        $resolved = Find-RosterMatch -Identity $identity -Roster $Roster -Grade 'strong'
+        if ($resolved -lt 0) { $resolved = Find-RosterMatch -Identity $identity -Roster $Roster -Grade 'weak' }
+    }
+    $PersonCache[$cacheKey] = $resolved
+    return $resolved
+}
+
+# A team is a set of repos. Written either as a bare list of repo names, or as
+# { repositories, areaPaths, members } when the default guesses need help:
+#   members   - otherwise anyone with a PR in the team's repos
+#   areaPaths - otherwise the team's backlog is whatever its members are assigned
+#   titlePrefixes - stories titled "CG - ...", for teams sharing one backlog
+$Teams = @()
+if ($FileConfig.PSObject.Properties['teams'] -and $FileConfig.teams) {
+    foreach ($property in $FileConfig.teams.PSObject.Properties) {
+        $value = $property.Value
+        if ($value -is [array] -or $value -is [string]) { $value = [pscustomobject]@{ repositories = @($value) } }
+        $Teams += [pscustomobject]@{
+            Name      = $property.Name
+            Repos     = @(Get-SubSetting $value 'repositories' | Where-Object { $_ })
+            AreaPaths = @(Get-SubSetting $value 'areaPaths' | Where-Object { $_ })
+            TitlePrefixes = @(Get-SubSetting $value 'titlePrefixes' | Where-Object { $_ })
+            Members   = @(Get-SubSetting $value 'members' | Where-Object { $_ })
+        }
+    }
+}
+if ($Teams.Count -eq 0) {
+    $Teams += [pscustomobject]@{
+        Name = 'Everyone'; Repos = @($Repository); AreaPaths = @(); TitlePrefixes = @()
+        Members = @($Roster | ForEach-Object { $_.Name })
+    }
+}
+
+$StatsPayload = $null
+
+if (-not $SkipTeamStats) {
+    $StatsFrom     = $Today.AddMonths(-1 * [int](Get-StatsSetting 'monthsBack'))
+    $statsFromIso  = $StatsFrom.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $StoryTypes    = @(Get-StatsSetting 'storyTypes')
+
+    Write-Host ""
+    Write-Host "Team stats since $($StatsFrom.ToString('yyyy-MM-dd'))" -ForegroundColor Cyan
+
+    # --- PRs: everything created in the stats window, plus anything still open,
+    #     so a draft that has sat for a year still shows up as a draft.
+    $StatsPrs   = @{}
+    $statsRepos = @(@($Repository) + @($Teams | ForEach-Object { $_.Repos }) | Where-Object { $_ } | Sort-Object -Unique)
+
+    foreach ($repo in $statsRepos) {
+        Write-Host "PRs: $repo" -NoNewline
+        try {
+            Add-PullRequests -Repo $repo -Into $StatsPrs -Query "searchCriteria.status=all&searchCriteria.queryTimeRangeType=created&searchCriteria.minTime=$statsFromIso"
+            Add-PullRequests -Repo $repo -Into $StatsPrs -Query 'searchCriteria.status=active'
+        }
+        catch { Write-Warning "PRs for $repo - $($_.Exception.Message)" }
+        Write-Host "  $(@($StatsPrs.Values | Where-Object { $_.Repo -eq $repo }).Count)" -ForegroundColor DarkGray
+    }
+
+    $prRecords = @(foreach ($entry in $StatsPrs.Values) {
+        $pr     = $entry.Pr
+        $person = Find-PersonId -Name $pr.createdBy.displayName -Email $pr.createdBy.uniqueName
+        if ($person -lt 0) { continue }
+        $status = $pr.status
+        if ($status -eq 'active' -and $pr.isDraft) { $status = 'draft' }
+        $closed = ConvertTo-Local $pr.closedDate
+        [ordered]@{
+            p = $person
+            r = $entry.Repo
+            s = $status            # active | draft | completed | abandoned
+            c = (ConvertTo-Local $pr.creationDate).ToString('yyyy-MM-dd')
+            x = $(if ($closed) { $closed.ToString('yyyy-MM-dd') } else { '' })
+        }
+    })
+
+    # --- Work items: stories (for points and velocity) and tasks (for hours left).
+    # State names differ per process (Done vs Closed, Removed vs Cut), so ask ADO
+    # which category each state belongs to rather than hard-coding the names.
+    function Get-FallbackCategory {
+        param([string] $State)
+        switch -Regex ($State) {
+            '^(Closed|Done|Completed)$'              { return 'Completed' }
+            '^(Removed|Cut)$'                        { return 'Removed' }
+            '^Resolved$'                             { return 'Resolved' }
+            '^(New|Proposed|To Do|Approved|Design)$' { return 'Proposed' }
+            default                                  { return 'InProgress' }
+        }
+    }
+
+    $queryTypes   = @($StoryTypes) + @('Task')
+    $quote        = { param($s) "'" + ($s -replace "'", "''") + "'" }
+    $itemRecords  = New-Object System.Collections.ArrayList
+
+    # Narrow to the configured area paths, plus any team's own - a team's area
+    # path need not sit under the global one.
+    $statsAreaPaths = @()
+    if ($WorkItemAreaPaths.Count -gt 0) {
+        $statsAreaPaths = @(@($WorkItemAreaPaths) + @($Teams | ForEach-Object { $_.AreaPaths }) | Where-Object { $_ } | Sort-Object -Unique)
+    }
+
+    foreach ($wiProject in $WorkItemProjects) {
+        $wiBase = "https://dev.azure.com/$WorkItemOrg/$([uri]::EscapeDataString($wiProject))/_apis"
+
+        $categories = @{}                       # "type|state" -> category
+        foreach ($type in $queryTypes) {
+            try {
+                $states = Invoke-Ado -Uri "$wiBase/wit/workitemtypes/$([uri]::EscapeDataString($type))/states?api-version=7.1"
+                foreach ($s in @($states.value)) { $categories["$type|$($s.name)"] = $s.category }
+            }
+            catch { }                           # type not in this process - fine
+        }
+        $doneNames    = @(@('Closed', 'Done') + @($categories.Keys | Where-Object { $categories[$_] -eq 'Completed' } | ForEach-Object { ($_ -split '\|', 2)[1] }) | Sort-Object -Unique)
+        $removedNames = @(@('Removed') + @($categories.Keys | Where-Object { $categories[$_] -eq 'Removed' } | ForEach-Object { ($_ -split '\|', 2)[1] }) | Sort-Object -Unique)
+
+        $where = "[System.TeamProject] = $(& $quote $wiProject)" +
+                 " AND [System.WorkItemType] IN ($(($queryTypes | ForEach-Object { & $quote $_ }) -join ', '))" +
+                 " AND [System.State] NOT IN ($(($removedNames | ForEach-Object { & $quote $_ }) -join ', '))" +
+                 " AND ([System.State] NOT IN ($(($doneNames | ForEach-Object { & $quote $_ }) -join ', '))" +
+                 " OR [System.ChangedDate] >= '$($StatsFrom.ToString('yyyy-MM-dd'))')"
+        if ($statsAreaPaths.Count -gt 0) {
+            $where += " AND (" + (($statsAreaPaths | ForEach-Object { "[System.AreaPath] UNDER $(& $quote $_)" }) -join ' OR ') + ")"
+        }
+
+        $ids = @()
+        try {
+            $result = Invoke-Ado -Uri "$wiBase/wit/wiql?api-version=7.1" -Method Post -Body (@{ query = "SELECT [System.Id] FROM WorkItems WHERE $where" } | ConvertTo-Json)
+            $ids    = @($result.workItems | ForEach-Object { [int]$_.id })
+        }
+        catch {
+            Write-Warning "Stats query against $wiProject failed: $($_.Exception.Message)"
+            Write-Warning "On a big shared project, set workItems.areaPaths (or a team's areaPaths) to narrow it."
+        }
+        Write-Host "Stories and tasks: $WorkItemOrg/$wiProject  $($ids.Count)" -ForegroundColor DarkGray
+
+        # WIQL only returns ids; pull the fields in batches of 200.
+        for ($i = 0; $i -lt $ids.Count; $i += 200) {
+            $chunk = $ids[$i..([math]::Min($i + 199, $ids.Count - 1))]
+            Write-Progress -Activity "Stories and tasks ($wiProject)" -PercentComplete (100 * $i / $ids.Count)
+            # The batch call leaves System.Parent out; relations carry it instead.
+            $items = @((Invoke-Ado -Uri "$wiBase/wit/workitemsbatch?api-version=7.1" -Method Post -Body (@{ ids = $chunk; '$expand' = 'relations' } | ConvertTo-Json)).value)
+
+            foreach ($item in $items) {
+                $f        = $item.fields
+                $type     = $f.'System.WorkItemType'
+                $state    = $f.'System.State'
+                $category = $categories["$type|$state"]
+                if (-not $category) { $category = Get-FallbackCategory $state }
+                if ($category -eq 'Removed') { continue }
+
+                $isTask = $type -eq 'Task'
+                $closed = $null
+                if ($category -eq 'Completed') {
+                    if ($isTask) { continue }       # a finished task says nothing about time left
+                    # Changed in the window isn't closed in the window.
+                    $closed = $f.'Microsoft.VSTS.Common.ClosedDate'
+                    if (-not $closed) { $closed = $f.'Microsoft.VSTS.Common.StateChangeDate' }
+                    if (-not $closed) { $closed = $f.'System.ChangedDate' }
+                    $closed = ConvertTo-Local $closed
+                    if ($closed -lt $StatsFrom) { continue }
+                }
+
+                # Agile/CMMI use StoryPoints, Scrum uses Effort, CMMI requirements use Size.
+                $points = $f.'Microsoft.VSTS.Scheduling.StoryPoints'
+                if ($null -eq $points) { $points = $f.'Microsoft.VSTS.Scheduling.Effort' }
+                if ($null -eq $points) { $points = $f.'Microsoft.VSTS.Scheduling.Size' }
+
+                $assigned = $f.'System.AssignedTo'
+                $person   = if ($assigned) { Find-PersonId -Name $assigned.displayName -Email $assigned.uniqueName } else { -1 }
+
+                [void]$itemRecords.Add([ordered]@{
+                    id  = $item.id
+                    p   = $person
+                    k   = $(if ($isTask) { 'task' } else { 'story' })
+                    s   = $state
+                    g   = $category           # Proposed | InProgress | Resolved | Completed
+                    pts = $(if ($null -ne $points) { [double]$points } else { $null })
+                    rem = $(if ($isTask -and $null -ne $f.'Microsoft.VSTS.Scheduling.RemainingWork') { [double]$f.'Microsoft.VSTS.Scheduling.RemainingWork' } else { $null })
+                    a   = $f.'System.AreaPath'
+                    t   = $f.'System.Title'
+                    # A task's team is its story's.
+                    par = $(@($item.relations | Where-Object { $_.rel -eq 'System.LinkTypes.Hierarchy-Reverse' } |
+                              ForEach-Object { [int](($_.url -split '/')[-1]) }) | Select-Object -First 1)
+                    c   = $(if ($closed) { $closed.ToString('yyyy-MM-dd') } else { '' })
+                })
+            }
+        }
+        Write-Progress -Activity "Stories and tasks ($wiProject)" -Completed
+    }
+
+    $StatsPayload = [ordered]@{
+        from            = $StatsFrom.ToString('yyyy-MM-dd')
+        to              = $Today.ToString('yyyy-MM-dd')
+        sprintDays      = [int](Get-StatsSetting 'sprintLengthDays')
+        anchor          = [string](Get-StatsSetting 'sprintAnchorDate')
+        velocitySprints = [int](Get-StatsSetting 'velocitySprints')
+        hoursPerDay     = [double](Get-StatsSetting 'hoursPerDevDay')
+        teams           = @($Teams | ForEach-Object {
+            $team    = $_
+            # null tells the page to work the members out from who has PRs in the repos.
+            $members = $null
+            if ($team.Members.Count -gt 0) {
+                $members = @($team.Members | ForEach-Object {
+                    $id = Find-PersonId -Name $_ -Email ''
+                    if ($id -lt 0) { Write-Warning "Team '$($team.Name)': member '$_' is not on the roster" }
+                    $id
+                } | Where-Object { $_ -ge 0 })
+            }
+            [ordered]@{
+                name      = $team.Name
+                repos     = @($team.Repos)
+                areaPaths = @($team.AreaPaths)
+                titlePrefixes = @($team.TitlePrefixes)
+                members   = $members
+            }
+        })
+        prs             = $prRecords
+        items           = @($itemRecords)
+    }
+
+    Write-Host "Team stats: $($prRecords.Count) PRs, $($itemRecords.Count) stories/tasks across $($Teams.Count) team(s)" -ForegroundColor DarkGray
+}
+
+# ---------------------------------------------------------------------------
 # Day columns
 # ---------------------------------------------------------------------------
 
@@ -875,6 +1145,7 @@ $payload = [ordered]@{
                                                types = $_.Types; suggest = $_.Suggest } })
     weak      = @($WeakMatches | Sort-Object Count -Descending |
                   ForEach-Object { [ordered]@{ name = $_.Name; email = $_.Email; person = $_.Person; count = $_.Count } })
+    stats     = $StatsPayload
 }
 
 $json = $payload | ConvertTo-Json -Depth 8 -Compress
