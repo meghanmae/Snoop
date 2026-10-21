@@ -1,10 +1,6 @@
 {
   "organization": "contoso",
   "project": "Apollo",
-  "repositories": [
-    "web",
-    "api"
-  ],
   "daysBack": 14,
 
   "people": [],
@@ -36,7 +32,11 @@
     "Docs": [
       "Contoso.Web.Docs",
       "Contoso.Api.Docs"
-    ]
+    ],
+    "Legacy": {
+      "repositories": [ "Contoso.Web.Legacy" ],
+      "enabled": false
+    }
   },
 
   "stats": {

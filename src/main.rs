@@ -241,6 +241,15 @@ async fn put_config(State(app): State<Arc<App>>, Json(body): Json<Value>) -> Res
     Json(app.status_json()).into_response()
 }
 
+/// Reads settings the way a save would, without saving: fills in defaults and
+/// tidies the legacy shapes, for importing and exporting a config file.
+async fn check_config(Json(body): Json<Value>) -> Response {
+    match serde_json::from_value::<config::Config>(body) {
+        Ok(config) => Json(json!({ "config": config, "missing": config.missing() })).into_response(),
+        Err(err) => fail(StatusCode::BAD_REQUEST, format!("Those settings don't fit: {err}")),
+    }
+}
+
 async fn auth_status() -> Json<Value> {
     Json(ado::auth_status().await)
 }
@@ -414,6 +423,7 @@ async fn run() -> Result<()> {
         .route("/api/status", get(status))
         .route("/api/refresh", post(refresh))
         .route("/api/config", get(get_config).put(put_config))
+        .route("/api/config/check", post(check_config))
         .route("/api/auth", get(auth_status))
         .route("/api/auth/az-login", post(az_login))
         .route("/api/auth/pat", post(save_pat))

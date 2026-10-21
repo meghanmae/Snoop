@@ -20,15 +20,63 @@ pub struct Raw {
     today: NaiveDate,
     prs: Vec<(String, Value)>,
     items: Vec<Item>,
+    /// Every state seen, in ADO's workflow order, with its category.
+    states: Vec<(String, String)>,
 }
 
 struct Item {
     id: i64,
+    /// Index into Settings.work_item_projects.
+    project: usize,
     fields: Value,
     category: String,
     closed: Option<NaiveDate>,
-    is_task: bool,
+    kind: Kind,
     parent: Option<i64>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    Story,
+    Bug,
+    Task,
+}
+
+impl Kind {
+    fn of(work_item_type: &str) -> Kind {
+        if work_item_type.eq_ignore_ascii_case("Task") {
+            Kind::Task
+        } else if work_item_type.eq_ignore_ascii_case("Bug") {
+            Kind::Bug
+        } else {
+            Kind::Story
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Kind::Story => "story",
+            Kind::Bug => "bug",
+            Kind::Task => "task",
+        }
+    }
+}
+
+/// Only stories carry points. Bugs and tasks are fetched as their own kinds,
+/// and features and epics sit above stories, so their points would count the
+/// same work twice.
+fn query_types(story_types: &[String]) -> Vec<String> {
+    let not_stories = ["Task", "Bug", "Feature", "Epic"];
+    let mut types: Vec<String> = vec![];
+    for t in story_types {
+        let t = t.trim();
+        if !t.is_empty() && !not_stories.iter().any(|n| n.eq_ignore_ascii_case(t)) && !types.iter().any(|x| x.eq_ignore_ascii_case(t)) {
+            types.push(t.to_string());
+        }
+    }
+    types.push("Bug".into());
+    types.push("Task".into());
+    types
 }
 
 /// State names differ per process (Done vs Closed, Removed vs Cut). Used only
@@ -58,8 +106,9 @@ pub async fn fetch(ado: &Ado, s: &Settings, today: NaiveDate) -> Result<Raw> {
         .unwrap_or_default();
 
     let (prs, items) = tokio::join!(fetch_prs(ado, s, &from_iso), fetch_items(ado, s, from));
-    let raw = Raw { from, today, prs, items: items? };
-    println!("Team stats since {from}: {} PRs, {} stories/tasks", raw.prs.len(), raw.items.len());
+    let (items, states) = items?;
+    let raw = Raw { from, today, prs, items, states };
+    println!("Team stats since {from}: {} PRs, {} stories/bugs/tasks", raw.prs.len(), raw.items.len());
     Ok(raw)
 }
 
@@ -69,16 +118,8 @@ async fn fetch_prs(ado: &Ado, s: &Settings, from_iso: &str) -> Vec<(String, Valu
     let c = &s.config;
     let base = format!("https://dev.azure.com/{}/{}/_apis", c.organization, escape(&c.project));
 
-    let mut repos: Vec<String> = vec![];
-    let mut seen = HashSet::new();
-    for repo in c.repositories.iter().chain(s.teams.iter().flat_map(|t| t.repos.iter())) {
-        if seen.insert(repo.to_lowercase()) {
-            repos.push(repo.clone());
-        }
-    }
-
     let created = format!("searchCriteria.status=all&searchCriteria.queryTimeRangeType=created&searchCriteria.minTime={from_iso}");
-    let lists = join_all(repos.iter().map(|repo| {
+    let lists = join_all(s.repos.iter().map(|repo| {
         let (base, created) = (&base, &created);
         async move {
             let (recent, open) =
@@ -104,10 +145,10 @@ async fn fetch_prs(ado: &Ado, s: &Settings, from_iso: &str) -> Vec<(String, Valu
     lists.into_iter().flatten().collect()
 }
 
-async fn fetch_items(ado: &Ado, s: &Settings, from: NaiveDate) -> Result<Vec<Item>> {
+async fn fetch_items(ado: &Ado, s: &Settings, from: NaiveDate) -> Result<(Vec<Item>, Vec<(String, String)>)> {
     let c = &s.config;
-    let mut types = c.stats.story_types.clone();
-    types.push("Task".into());
+    let types = query_types(&c.stats.story_types);
+    let mut state_order: Vec<(String, String)> = vec![];
 
     // Narrow to the configured area paths, plus any team's own - a team's area
     // path need not sit under the global one.
@@ -122,7 +163,7 @@ async fn fetch_items(ado: &Ado, s: &Settings, from: NaiveDate) -> Result<Vec<Ite
     }
 
     let mut items = vec![];
-    for project in &s.work_item_projects {
+    for (project_index, project) in s.work_item_projects.iter().enumerate() {
         let base = format!("https://dev.azure.com/{}/{}/_apis", s.work_item_org, escape(project));
 
         // Ask ADO which category each state belongs to rather than hard-coding names.
@@ -135,7 +176,11 @@ async fn fetch_items(ado: &Ado, s: &Settings, from: NaiveDate) -> Result<Vec<Ite
         for (kind, result) in states {
             // An error means the type isn't in this process - fine.
             for state in result.map(values).unwrap_or_default() {
-                categories.insert((kind.clone(), str_at(&state, &["name"]).into()), str_at(&state, &["category"]).into());
+                let (name, category) = (str_at(&state, &["name"]).to_string(), str_at(&state, &["category"]).to_string());
+                if !state_order.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                    state_order.push((name.clone(), category.clone()));
+                }
+                categories.insert((kind.clone(), name), category);
             }
         }
         let names_in = |category: &str, defaults: &[&str]| {
@@ -189,12 +234,8 @@ async fn fetch_items(ado: &Ado, s: &Settings, from: NaiveDate) -> Result<Vec<Ite
                     continue;
                 }
 
-                let is_task = kind == "Task";
                 let mut closed = None;
                 if category == "Completed" {
-                    if is_task {
-                        continue; // a finished task says nothing about time left
-                    }
                     // Changed in the window isn't closed in the window.
                     let date = ["Microsoft.VSTS.Common.ClosedDate", "Microsoft.VSTS.Common.StateChangeDate", "System.ChangedDate"]
                         .iter()
@@ -211,12 +252,20 @@ async fn fetch_items(ado: &Ado, s: &Settings, from: NaiveDate) -> Result<Vec<Ite
                         .find(|l| str_at(l, &["rel"]) == "System.LinkTypes.Hierarchy-Reverse")
                         .and_then(|l| str_at(l, &["url"]).rsplit('/').next()?.parse().ok())
                 });
-                items.push(Item { id: item["id"].as_i64().unwrap_or(0), fields, category, closed, is_task, parent });
+                items.push(Item {
+                    id: item["id"].as_i64().unwrap_or(0),
+                    project: project_index,
+                    fields,
+                    category,
+                    closed,
+                    kind: Kind::of(&kind),
+                    parent,
+                });
             }
         }
-        println!("Stories and tasks: {}/{project}  {}", s.work_item_org, ids.len());
+        println!("Stories, bugs and tasks: {}/{project}  {}", s.work_item_org, ids.len());
     }
-    Ok(items)
+    Ok((items, state_order))
 }
 
 pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
@@ -248,7 +297,8 @@ pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
             let points = ["Microsoft.VSTS.Scheduling.StoryPoints", "Microsoft.VSTS.Scheduling.Effort", "Microsoft.VSTS.Scheduling.Size"]
                 .iter()
                 .find_map(|k| f[*k].as_f64());
-            let remaining = if item.is_task { f["Microsoft.VSTS.Scheduling.RemainingWork"].as_f64() } else { None };
+            let points = if item.kind == Kind::Story { points } else { None };
+            let remaining = if item.kind == Kind::Task { f["Microsoft.VSTS.Scheduling.RemainingWork"].as_f64() } else { None };
             let assigned = &f["System.AssignedTo"];
             let person = if assigned.is_object() {
                 resolver.find(str_at(assigned, &["displayName"]), str_at(assigned, &["uniqueName"]))
@@ -257,15 +307,16 @@ pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
             };
             json!({
                 "id": item.id,
+                "pj": item.project,
                 "p": person,
-                "k": if item.is_task { "task" } else { "story" },
+                "k": item.kind.key(),
                 "s": str_at(f, &["System.State"]),
                 "g": item.category,
                 "pts": points,
                 "rem": remaining,
                 "a": str_at(f, &["System.AreaPath"]),
                 "t": str_at(f, &["System.Title"]),
-                // A task's team is its story's, since tasks rarely carry the title prefix.
+                // A task or bug's team is its story's, since they rarely carry the title prefix.
                 "par": item.parent,
                 "c": item.closed.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default(),
             })
@@ -276,7 +327,7 @@ pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
     let everyone;
     let teams: Vec<(&str, &[String], &[String], &[String], Option<&[String]>)> = if s.teams.is_empty() {
         everyone = resolver.roster.iter().map(|p| p.name.clone()).collect::<Vec<_>>();
-        vec![("Everyone", &s.config.repositories[..], &[][..], &[][..], Some(&everyone[..]))]
+        vec![("Everyone", &s.repos[..], &[][..], &[][..], Some(&everyone[..]))]
     } else {
         s.teams
             .iter()
@@ -316,5 +367,21 @@ pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
         "teams": teams,
         "prs": prs,
         "items": items,
+        "states": raw.states.iter().map(|(n, g)| json!({ "n": n, "g": g })).collect::<Vec<_>>(),
+        // For links that open a set of items as a query in Azure DevOps.
+        "wiOrg": s.work_item_org,
+        "wiProjects": s.work_item_projects,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_stories_count_as_stories() {
+        let types = query_types(&["User Story".into(), "Feature".into(), "bug".into(), "Epic".into(), "Product Backlog Item".into()]);
+        assert_eq!(types, ["User Story", "Product Backlog Item", "Bug", "Task"]);
+        assert!(Kind::of("Bug") == Kind::Bug && Kind::of("Task") == Kind::Task && Kind::of("User Story") == Kind::Story);
+    }
 }

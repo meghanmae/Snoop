@@ -34,7 +34,9 @@
   header h1 { margin: 0; font-size: 15px; font-weight: 500; color: var(--dim); }
   header a { margin-left: auto; color: #9ec5e0; text-decoration: none; font-size: 12.5px; }
   header a:hover { text-decoration: underline; }
-  .path { color: var(--dimmer); font-size: 11px; margin-bottom: 22px; word-break: break-all; }
+  .pathbar { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 22px; }
+  .path { color: var(--dimmer); font-size: 11px; word-break: break-all; flex: 1; min-width: 200px; }
+  .pathbar button.link { font-size: 12px; }
 
   .welcome {
     background: #12202c;
@@ -138,8 +140,24 @@
 
   /* teams */
   .team { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px 2px; margin-bottom: 10px; background: var(--bg); }
-  .team-head { display: flex; gap: 8px; margin-bottom: 12px; }
-  .team-head input { font-weight: 600; }
+  .team-head { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .team-head input[type=text] { font-weight: 600; flex: 1; }
+  .team-head label.check { margin: 0 4px 0 2px; font-size: 12px; color: var(--dim); }
+  .team.off { border-style: dashed; }
+  .team.off > .field { opacity: .45; }
+  .team.off .team-head input[type=text] { color: var(--dim); }
+  .team .off-note { display: none; color: var(--dimmer); font-size: 11.5px; margin: -6px 0 12px; }
+  .team.off .off-note { display: block; }
+
+  .notice {
+    background: #12202c;
+    border: 1px solid #1f3a4d;
+    border-radius: 4px;
+    color: #9ec5e0;
+    font-size: 12px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+  }
 
   .alias { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
   .alias span { color: var(--dimmer); }
@@ -162,11 +180,16 @@
     <h1>Settings</h1>
     <a href="/" id="backLink">Back to the dashboard</a>
   </header>
-  <div class="path" id="configPath"></div>
+  <div class="pathbar">
+    <div class="path" id="configPath"></div>
+    <button type="button" class="link" id="importConfig" title="Fill this page from a config file. Nothing is saved until you press Save.">Import config...</button>
+    <button type="button" class="link" id="exportConfig" title="Download this page's settings as a config file">Export config</button>
+    <input type="file" id="importFile" accept=".json,application/json" hidden>
+  </div>
 
   <div class="welcome" id="welcome" hidden>
-    <b>Welcome.</b> Sign in, then pick the organization, project and repositories to watch.
-    Everything else has sensible defaults and can wait.
+    <b>Welcome.</b> Sign in, pick the organization and project, then add a team with the repositories to watch -
+    or import a config file you already have. Everything else has sensible defaults and can wait.
   </div>
 
   <section>
@@ -203,12 +226,21 @@
       <label for="project">Project</label>
       <input type="text" id="project" list="projectList" placeholder="Project name">
       <datalist id="projectList"></datalist>
+      <div class="hint">Repositories belong to teams, below.</div>
     </div>
-    <div class="field">
-      <div class="label">Repositories</div>
-      <div id="repositories"></div>
-      <div class="hint">All of them are charted together on the Activity tab.</div>
-    </div>
+  </section>
+
+  <section>
+    <h2>Teams</h2>
+    <p class="lead">
+      A team is a set of repos, and every active team's repos are charted together on the Activity tab.
+      Its backlog is the stories titled with one of its prefixes or under its area paths; with neither,
+      it's whatever the members are assigned. Members default to whoever has PRs in the repos.
+      Switch a team off to leave it out without deleting it.
+    </p>
+    <div class="notice" id="teamNotice" hidden></div>
+    <div id="teams"></div>
+    <button type="button" id="addTeam" style="margin-bottom: 14px">+ Add a team</button>
   </section>
 
   <section>
@@ -245,16 +277,6 @@
       <button type="button" class="link" id="addAlias">+ Add an alias</button>
       <div class="hint">For a git name or email that looks nothing like the person's real name.</div>
     </div>
-  </section>
-
-  <section>
-    <h2>Teams</h2>
-    <p class="lead">
-      A team is a set of repos. Its backlog is the stories titled with one of its prefixes or under its
-      area paths; with neither, it's whatever the members are assigned. Members default to whoever has PRs in the repos.
-    </p>
-    <div id="teams"></div>
-    <button type="button" id="addTeam" style="margin-bottom: 14px">+ Add a team</button>
   </section>
 
   <section>
@@ -309,7 +331,7 @@
     <div class="field">
       <div class="label">Story types</div>
       <div id="storyTypes"></div>
-      <div class="hint">Work item types that carry story points.</div>
+      <div class="hint">Work item types that carry story points. Bugs, tasks, features and epics never count towards points, even if listed.</div>
     </div>
   </section>
 
@@ -565,14 +587,30 @@ document.body.appendChild(peopleList);
 
 const teams = [];
 
-function addTeam(name, team) {
+function uniqueTeamName(base) {
+  const taken = new Set(teams.map(t => t.title.value.trim().toLowerCase()));
+  if (!taken.has(base.toLowerCase())) return base;
+  for (let n = 2; ; n++) {
+    const name = `${base} ${n}`;
+    if (!taken.has(name.toLowerCase())) return name;
+  }
+}
+
+/* Adds a team card at the end, or straight after another team's card. */
+function addTeam(name, team, after) {
   team = team || {};
   const card = el('div', 'team');
   const head = el('div', 'team-head');
   const title = el('input'); title.type = 'text'; title.placeholder = 'Team name'; title.value = name || '';
-  const remove = el('button', 'danger', 'Remove team'); remove.type = 'button';
-  head.append(title, remove);
-  card.appendChild(head);
+  const activeLabel = el('label', 'check');
+  activeLabel.title = 'Switch off to leave this team out without deleting it';
+  const active = el('input'); active.type = 'checkbox'; active.checked = team.enabled !== false;
+  activeLabel.append(active, document.createTextNode('Active'));
+  const duplicate = el('button', null, 'Duplicate'); duplicate.type = 'button';
+  duplicate.title = 'Copy this team, to edit the copy';
+  const remove = el('button', 'danger', 'Remove'); remove.type = 'button';
+  head.append(title, activeLabel, duplicate, remove);
+  card.append(head, el('div', 'off-note', 'Switched off: left out of the Activity and Teams tabs until it is switched back on.'));
 
   const field = (label, chips, hint) => {
     const f = el('div', 'field');
@@ -583,18 +621,58 @@ function addTeam(name, team) {
     return chips;
   };
   const entry = {
-    card, title,
-    repos:    field('Repositories', chipList(team.repositories, () => suggestions.repos)),
-    prefixes: field('Story title prefixes', chipList(team.titlePrefixes, null, 'e.g. CG'),
-                    'Stories titled "CG - ...", "CG: ..." or "[CG] ..." belong to this team.'),
+    card, title, active,
+    repos:    field('Repositories', chipList(team.repositories, () => suggestions.repos, 'Type or pick a repository')),
+    prefixes: field('Story title prefixes', chipList(team.titlePrefixes, null, 'e.g. SCH'),
+                    'Stories titled "SCH - ...", "SCH: ..." or "[SCH] ..." belong to this team.'),
     areas:    field('Area paths', chipList(team.areaPaths, () => suggestions.areas)),
     members:  field('Members', chipList(team.members, () => peopleNow()),
-                    'Optional. Otherwise anyone with a PR in these repos.')
+                    'Optional. Otherwise anyone with a PR in these repos.'),
+    values: () => ({
+      enabled: active.checked,
+      repositories: entry.repos.values(),
+      areaPaths: entry.areas.values(),
+      titlePrefixes: entry.prefixes.values(),
+      members: entry.members.values()
+    })
   };
+
+  const showActive = () => card.classList.toggle('off', !active.checked);
+  active.addEventListener('change', showActive);
+  showActive();
+
+  duplicate.addEventListener('click', () => {
+    const copy = addTeam(uniqueTeamName(`${title.value.trim() || 'Team'} copy`), entry.values(), entry);
+    copy.title.focus();
+    copy.title.select();
+  });
   remove.addEventListener('click', () => { card.remove(); teams.splice(teams.indexOf(entry), 1); });
-  teams.push(entry);
-  $('teams').appendChild(card);
-  if (!name) title.focus();
+
+  if (after && teams.includes(after)) {
+    teams.splice(teams.indexOf(after) + 1, 0, entry);
+    after.card.after(card);
+  } else {
+    teams.push(entry);
+    $('teams').appendChild(card);
+  }
+  return entry;
+}
+
+/* Repositories used to be listed on their own; now they come from the teams.
+   Any old-style repo that no active team covers moves into a team of its own. */
+function adoptLooseRepos(config) {
+  const covered = new Set(teams.filter(t => t.active.checked).flatMap(t => t.repos.values()).map(r => r.toLowerCase()));
+  const loose = [];
+  for (const repo of (config.repositories || []).map(r => r.trim()).filter(Boolean)) {
+    if (!covered.has(repo.toLowerCase())) { covered.add(repo.toLowerCase()); loose.push(repo); }
+  }
+  $('teamNotice').hidden = !loose.length;
+  if (!loose.length) return;
+  const name = uniqueTeamName((config.project || '').trim() || 'Repositories');
+  addTeam(name, { repositories: loose });
+  $('teamNotice').textContent =
+    `Repositories now belong to teams, so ${loose.join(', ')} ${loose.length === 1 ? 'has' : 'have'} moved into a new team, "${name}". ` +
+    'Rename it or split it up as you like - nothing changes until you save.';
 }
 
 /* A team written as a bare list of repos, or one repo, or the full object. */
@@ -605,7 +683,7 @@ function normaliseTeam(team) {
 }
 
 $('addAlias').addEventListener('click', () => addAliasRow());
-$('addTeam').addEventListener('click', () => addTeam());
+$('addTeam').addEventListener('click', () => addTeam().title.focus());
 
 /* ---------- load and save ---------- */
 
@@ -626,23 +704,35 @@ function number(id, fallback) {
 
 async function load() {
   const { path, config, missing } = await api('GET', '/api/config');
-  original = config;
   $('configPath').textContent = path;
   $('welcome').hidden = !missing;
   $('backLink').hidden = !!missing;
+  render(config);
+
+  api('GET', '/api/lookup/people').then(names => {
+    suggestions.people = names;
+    for (const name of names) { const o = el('option'); o.value = name; peopleList.appendChild(o); }
+  }).catch(() => {});
+}
+
+/* Fills the page from a config, replacing whatever it showed before. */
+function render(config) {
+  original = config;
+  for (const id of ['wiProjects', 'wiAreaPaths', 'people', 'storyTypes', 'aliases', 'teams']) $(id).innerHTML = '';
+  teams.length = 0;
 
   $('organization').value = config.organization || '';
   $('project').value = config.project || '';
   $('wiOrganization').value = config.workItems.organization || '';
 
-  chips.repositories = mount('repositories', config.repositories, () => suggestions.repos, 'Type or pick a repository');
   chips.wiProjects   = mount('wiProjects', config.workItems.projects, () => suggestions.projects);
   chips.wiAreaPaths  = mount('wiAreaPaths', config.workItems.areaPaths, () => suggestions.areas);
   chips.people       = mount('people', config.people, () => suggestions.people, 'Type a name and press Enter');
-  chips.storyTypes   = mount('storyTypes', config.stats.storyTypes, () => ['User Story', 'Product Backlog Item', 'Story', 'Requirement', 'Bug']);
+  chips.storyTypes   = mount('storyTypes', config.stats.storyTypes, () => ['User Story', 'Product Backlog Item', 'Story', 'Requirement']);
 
   for (const [from, to] of Object.entries(config.aliases || {})) addAliasRow(from, to);
   for (const [name, team] of Object.entries(config.teams || {})) addTeam(name, normaliseTeam(team));
+  adoptLooseRepos(config);
 
   setNumber('daysBack', config.daysBack);
   setNumber('prLookbackDays', config.prLookbackDays);
@@ -658,11 +748,6 @@ async function load() {
   setNumber('hoursPerDevDay', config.stats.hoursPerDevDay);
   setNumber('maxConcurrentRequests', config.maxConcurrentRequests);
   setNumber('port', config.port);
-
-  api('GET', '/api/lookup/people').then(names => {
-    suggestions.people = names;
-    for (const name of names) { const o = el('option'); o.value = name; peopleList.appendChild(o); }
-  }).catch(() => {});
 }
 
 function collect() {
@@ -671,12 +756,7 @@ function collect() {
     const name = team.title.value.trim();
     if (!name) throw new Error('Every team needs a name.');
     if (teamMap[name]) throw new Error(`Two teams are called "${name}".`);
-    teamMap[name] = {
-      repositories: team.repos.values(),
-      areaPaths: team.areas.values(),
-      titlePrefixes: team.prefixes.values(),
-      members: team.members.values()
-    };
+    teamMap[name] = team.values();
   }
 
   const aliases = {};
@@ -689,7 +769,8 @@ function collect() {
     ...original,
     organization: $('organization').value.trim(),
     project: $('project').value.trim(),
-    repositories: chips.repositories.values(),
+    // The teams carry the repositories now.
+    repositories: [],
     daysBack: number('daysBack', 14),
     people: chips.people.values(),
     aliases,
@@ -730,6 +811,51 @@ $('save').addEventListener('click', async () => {
   } catch (e) {
     say('saveMsg', 'error', e.message);
     $('save').disabled = false;
+  }
+});
+
+/* ---------- import and export ---------- */
+
+$('importConfig').addEventListener('click', () => $('importFile').click());
+
+$('importFile').addEventListener('change', async () => {
+  const file = $('importFile').files[0];
+  $('importFile').value = '';
+  if (!file) return;
+  try {
+    let parsed;
+    try { parsed = JSON.parse((await file.text()).replace(/^\uFEFF/, '')); }
+    catch (e) { throw new Error(`${file.name} isn't valid JSON - ${e.message}`); }
+    const known = ['organization', 'project', 'repositories', 'teams'];
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !known.some(k => k in parsed)) {
+      throw new Error(`${file.name} doesn't look like a Snoop config.`);
+    }
+    // Let Snoop fill in defaults and read the older shapes, exactly as a save would.
+    const { config } = await api('POST', '/api/config/check', parsed);
+    render(config);
+    say('saveMsg', 'ok', `Loaded ${file.name}. Nothing is saved yet - look it over, then Save and refresh.`);
+    loadLookups(false);
+  } catch (e) {
+    say('saveMsg', 'error', 'Could not import: ' + e.message);
+  }
+});
+
+$('exportConfig').addEventListener('click', async () => {
+  try {
+    const { config } = await api('POST', '/api/config/check', collect());
+    const slug = config.project.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '');
+    const fileName = slug ? `snoop.${slug}.config.json` : 'snoop.config.json';
+    const blob = new Blob([JSON.stringify(config, null, 2) + '\n'], { type: 'application/json' });
+    const link = el('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    say('saveMsg', 'ok', `Exported ${fileName}, including any changes not saved yet.`);
+  } catch (e) {
+    say('saveMsg', 'error', 'Could not export: ' + e.message);
   }
 });
 

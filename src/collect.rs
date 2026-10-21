@@ -176,7 +176,7 @@ pub async fn refresh(ado: &Ado, s: &Settings) -> Result<Value> {
         "meta": {
             "org": c.organization,
             "project": c.project,
-            "repos": c.repositories,
+            "repos": s.repos,
             "from": ymd(w.from),
             "to": ymd(w.today),
             "days": c.days_back,
@@ -328,7 +328,7 @@ async fn repo_commits(ado: &Ado, s: &Settings, w: Window, repo: &str) -> Result<
 }
 
 async fn all_commits(ado: &Ado, s: &Settings, w: Window) -> Result<Vec<Event>> {
-    let results = join_all(s.config.repositories.iter().map(|repo| repo_commits(ado, s, w, repo))).await;
+    let results = join_all(s.repos.iter().map(|repo| repo_commits(ado, s, w, repo))).await;
     let mut events = vec![];
     for result in results {
         events.extend(result?);
@@ -367,7 +367,7 @@ async fn pr_activity(ado: &Ado, s: &Settings, w: Window) -> Result<Vec<Event>> {
     // set that can hold a comment inside the window.
     let closed_query =
         format!("searchCriteria.status=all&searchCriteria.queryTimeRangeType=closed&searchCriteria.minTime={lookback}&searchCriteria.maxTime={to}");
-    let lists = join_all(c.repositories.iter().map(|repo| {
+    let lists = join_all(s.repos.iter().map(|repo| {
         let base = &base;
         let closed_query = &closed_query;
         async move {

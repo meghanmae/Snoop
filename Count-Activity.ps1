@@ -32,6 +32,16 @@ $config  = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 $org     = $config.organization
 $project = $config.project
 $repos   = @($config.repositories)
+# The repos also come from the active teams.
+if ($config.teams) {
+    foreach ($team in $config.teams.PSObject.Properties.Value) {
+        if ($team -is [array] -or $team -is [string]) { $repos += @($team); continue }
+        if ($team.PSObject.Properties['enabled'] -and $team.enabled -eq $false) { continue }
+        $repos += @($team.repositories)
+    }
+}
+$seenRepos = @{}
+$repos   = @($repos | Where-Object { $_ -and -not $seenRepos.ContainsKey("$_".ToLower()) } | ForEach-Object { $seenRepos["$_".ToLower()] = $true; "$_" })
 $people  = @($config.people)
 $wiOrg   = if ($config.workItems.organization) { $config.workItems.organization } else { $org }
 $wiProjects  = @($config.workItems.projects)

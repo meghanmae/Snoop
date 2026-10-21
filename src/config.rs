@@ -1,7 +1,7 @@
 //! snoop.config.json: what to look at. Re-read on every refresh, so edits to the
 //! file show up on the next press of Refresh without restarting.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub organization: String,
     pub project: String,
+    /// Legacy: repos outside any team. Repos now come from the enabled teams;
+    /// the settings page moves anything listed here into a team.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub repositories: Vec<String>,
     pub days_back: i64,
     pub people: Vec<String>,
@@ -23,7 +26,8 @@ pub struct Config {
     pub include_all_branches: bool,
     pub max_branches: usize,
     pub include_weekends: bool,
-    /// Team name -> its repos, or { repositories, areaPaths, members }.
+    /// Team name -> its repos, or { repositories, areaPaths, members, enabled }.
+    /// The enabled teams' repos are the repos Snoop watches.
     pub teams: IndexMap<String, TeamConfig>,
     pub stats: StatsConfig,
     /// How many Azure DevOps requests may be in flight at once.
@@ -74,17 +78,40 @@ pub enum TeamConfig {
     Detail(TeamDetail),
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+impl TeamConfig {
+    pub fn detail(&self) -> TeamDetail {
+        match self.clone() {
+            TeamConfig::Repos(repositories) => TeamDetail { repositories, ..TeamDetail::default() },
+            TeamConfig::Repo(repo) => TeamDetail { repositories: vec![repo], ..TeamDetail::default() },
+            TeamConfig::Detail(detail) => detail,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TeamDetail {
+    /// A disabled team stays in the config but is left out of everything.
+    #[serde(skip_serializing_if = "is_true")]
+    pub enabled: bool,
     pub repositories: Vec<String>,
     /// Otherwise the backlog is whatever the members are assigned.
     pub area_paths: Vec<String>,
-    /// Stories titled "CG - ...", "CG: ..." or "[CG] ..." belong to the team,
+    /// Stories titled "SCH - ...", "SCH: ..." or "[SCH] ..." belong to the team,
     /// for teams that share one backlog and tell their stories apart by name.
     pub title_prefixes: Vec<String>,
     /// Otherwise anyone with a PR in the team's repos.
     pub members: Vec<String>,
+}
+
+impl Default for TeamDetail {
+    fn default() -> Self {
+        Self { enabled: true, repositories: vec![], area_paths: vec![], title_prefixes: vec![], members: vec![] }
+    }
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 /// The Teams view reaches back much further than daysBack: velocity and
@@ -128,10 +155,13 @@ pub struct Team {
 pub struct Settings {
     pub config: Config,
     pub config_name: String,
+    /// Every repo to watch: the enabled teams' repos, plus any legacy ones.
+    pub repos: Vec<String>,
     pub work_item_org: String,
     pub work_item_projects: Vec<String>,
     /// Lower-cased keys: alias lookups ignore case.
     pub aliases: HashMap<String, String>,
+    /// Enabled teams only.
     pub teams: Vec<Team>,
 }
 
@@ -170,11 +200,27 @@ impl Config {
             Some("an organization")
         } else if self.project.trim().is_empty() {
             Some("a project")
-        } else if self.repositories.iter().all(|r| r.trim().is_empty()) {
-            Some("at least one repository")
+        } else if self.repos().is_empty() {
+            Some("at least one active team with a repository")
         } else {
             None
         }
+    }
+
+    pub fn enabled_teams(&self) -> impl Iterator<Item = (&String, TeamDetail)> {
+        self.teams.iter().map(|(name, team)| (name, team.detail())).filter(|(_, team)| team.enabled)
+    }
+
+    /// Legacy repos first, then each enabled team's, without repeats.
+    pub fn repos(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        let legacy = self.repositories.iter().cloned();
+        let teams = self.enabled_teams().flat_map(|(_, team)| team.repositories);
+        legacy
+            .chain(teams)
+            .map(|repo| repo.trim().to_string())
+            .filter(|repo| !repo.is_empty() && seen.insert(repo.to_lowercase()))
+            .collect()
     }
 }
 
@@ -194,30 +240,77 @@ pub fn load(path: &Path) -> Result<Settings> {
     let aliases = config.aliases.iter().map(|(k, v)| (k.to_lowercase(), v.clone())).collect();
 
     let teams = config
-        .teams
-        .iter()
-        .map(|(name, team)| {
-            let detail = match team.clone() {
-                TeamConfig::Repos(repositories) => TeamDetail { repositories, ..TeamDetail::default() },
-                TeamConfig::Repo(repo) => TeamDetail { repositories: vec![repo], ..TeamDetail::default() },
-                TeamConfig::Detail(detail) => detail,
-            };
-            Team {
-                name: name.clone(),
-                repos: detail.repositories,
-                area_paths: detail.area_paths,
-                title_prefixes: detail.title_prefixes,
-                members: detail.members,
-            }
+        .enabled_teams()
+        .map(|(name, detail)| Team {
+            name: name.clone(),
+            repos: detail.repositories,
+            area_paths: detail.area_paths,
+            title_prefixes: detail.title_prefixes,
+            members: detail.members,
         })
         .collect();
 
     Ok(Settings {
         config_name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        repos: config.repos(),
         config,
         work_item_org,
         work_item_projects,
         aliases,
         teams,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(json: &str) -> Config {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn repos_come_from_active_teams_and_legacy_list() {
+        let config = parse(
+            r#"{
+                "organization": "o", "project": "p",
+                "repositories": ["web", "API"],
+                "teams": {
+                    "A": ["api", "x"],
+                    "B": { "repositories": ["y"], "enabled": false },
+                    "C": { "repositories": ["z", "X"] },
+                    "D": "solo"
+                }
+            }"#,
+        );
+        assert_eq!(config.repos(), ["web", "API", "x", "z", "solo"]);
+        assert_eq!(config.enabled_teams().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["A", "C", "D"]);
+        assert_eq!(config.missing(), None);
+    }
+
+    #[test]
+    fn example_config_reads() {
+        let config = parse(include_str!("../snoop.config.example.json"));
+        assert_eq!(config.missing(), None);
+        assert!(!config.repos().iter().any(|r| r == "Contoso.Web.Legacy"));
+    }
+
+    #[test]
+    fn needs_an_active_team_with_a_repo() {
+        let config = parse(r#"{ "organization": "o", "project": "p", "teams": { "A": { "repositories": ["x"], "enabled": false } } }"#);
+        assert!(config.repos().is_empty());
+        assert_eq!(config.missing(), Some("at least one active team with a repository"));
+    }
+
+    #[test]
+    fn writes_enabled_and_repositories_only_when_they_matter() {
+        let config = parse(
+            r#"{ "organization": "o", "project": "p", "teams": { "On": { "repositories": ["x"] }, "Off": { "repositories": ["y"], "enabled": false } } }"#,
+        );
+        let json = serde_json::to_value(&config).unwrap();
+        assert!(json.get("repositories").is_none());
+        assert!(json["teams"]["On"].get("enabled").is_none());
+        assert_eq!(json["teams"]["Off"]["enabled"], false);
+        assert_eq!(parse(&json.to_string()).repos(), ["x"]);
+    }
 }

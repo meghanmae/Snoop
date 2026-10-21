@@ -245,7 +245,6 @@
 
   .teams { padding: 22px 22px 60px; max-width: 1500px; }
   .teams h3 { margin: 0 0 12px; font-size: 12px; font-weight: 500; color: var(--dim); letter-spacing: .06em; }
-  .team { padding-top: 30px; margin-top: 30px; border-top: 1px solid var(--line); }
   .team h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; color: #e6edf5; }
   .team-sub { color: var(--dimmer); font-size: 11.5px; margin-bottom: 16px; }
   .chip {
@@ -264,7 +263,47 @@
   .tile .label { font-size: 11px; color: var(--dim); }
   .tile .value { font-size: 22px; font-weight: 600; color: #e6edf5; margin: 4px 0 2px; }
   .tile .value small { font-size: 12px; font-weight: 400; color: var(--dim); }
-  .tile .sub { font-size: 11px; color: var(--dimmer); line-height: 1.5; }
+  .tile .sub { font-size: 11px; color: var(--dimmer); line-height: 1.5; white-space: pre-line; }
+
+  .subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 22px; }
+  .subtabs button {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    color: var(--dim);
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 13px;
+    cursor: pointer;
+  }
+  .subtabs button:hover { color: #fff; border-color: #2e3843; }
+  .subtabs button.on { color: #e6edf5; border-color: var(--series); background: #15263a; }
+
+  .chart.wide { grid-column: 1 / -1; }
+  .brow { display: grid; grid-template-columns: 70px 44px 1fr; gap: 4px 10px; align-items: center; margin: 4px 0 12px; }
+  .brow .blabel { color: #dbe5ef; font-size: 12px; }
+  .brow .bcount { color: var(--dim); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+  .bbar { display: flex; gap: 2px; height: 18px; }
+  .bbar > .seg {
+    display: block;
+    height: 100%;
+    min-width: 3px;
+    color: #0b0d10;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 18px;
+    text-align: center;
+    text-decoration: none;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  a.seg:hover { filter: brightness(1.18); outline: 1px solid #e6edf5; outline-offset: 1px; }
+  .bbar > .seg:first-child { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+  .bbar > .seg:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+  .brow a.bcount { color: #9ec5e0; text-decoration: none; }
+  .brow a.bcount:hover { text-decoration: underline; }
+  .brow .caption { grid-column: 3; margin-top: 0; }
+  .flag { color: var(--dimmer); cursor: help; }
 
   .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px 8px; min-width: 0; }
@@ -297,6 +336,7 @@
   .note b { color: var(--dim); font-weight: 500; }
   a.teamlink { color: #9ec5e0; text-decoration: none; }
   a.teamlink:hover { text-decoration: underline; }
+  a.teamlink.on { color: #e6edf5; font-weight: 600; }
 
   .tip {
     position: fixed;
@@ -331,6 +371,8 @@
         <h4>Teams:</h4>
         <div id="teamLinks"></div>
       </div>
+    </div>
+    <div id="statsControls" hidden>
       <div class="group">
         <h4>Forecast from:</h4>
         <div id="velocityWindow"></div>
@@ -373,6 +415,7 @@
     <nav class="tabs">
       <button type="button" data-view="activity" class="on">Activity</button>
       <button type="button" data-view="teams">Teams</button>
+      <button type="button" data-view="people">People</button>
     </nav>
     <div id="banner"></div>
     <section id="activityView">
@@ -384,6 +427,7 @@
       <div class="unmatched" id="unmatchedBox"></div>
     </section>
     <section id="teamsView" class="teams" hidden></section>
+    <section id="peopleView" class="teams" hidden></section>
   </main>
 </div>
 
@@ -746,7 +790,7 @@ const PR_STATES = [
   { key: 'draft',     label: 'Draft' }
 ];
 
-const teamState = { velocitySprints: STATS ? STATS.velocitySprints : 6 };
+const teamState = { velocitySprints: STATS ? STATS.velocitySprints : 6, selected: 'overview' };
 
 const toDate   = s => new Date(s + 'T00:00:00Z');
 const shortDay = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
@@ -803,9 +847,14 @@ if (STATS) {
   }
 }
 
-function recentSprints() {
+/* The complete sprints the forecast averages. Sprints before `first` - the
+   first one with anything closed - are left out: a team or person that only
+   started recently would otherwise look slow for months of nothing. */
+function recentSprints(first = 0) {
   const complete = SPRINTS.map((s, i) => i).filter(i => SPRINTS[i].complete);
-  return teamState.velocitySprints > 0 ? complete.slice(-teamState.velocitySprints) : complete;
+  const live     = first > 0 ? complete.filter(i => i >= first) : complete;
+  const pool     = live.length ? live : complete;
+  return teamState.velocitySprints > 0 ? pool.slice(-teamState.velocitySprints) : pool;
 }
 
 /* The range comes from the slower and faster halves of the recent sprints -
@@ -832,7 +881,71 @@ function forecast(values, remaining) {
 
 const ITEMS_BY_ID = new Map(STATS ? STATS.items.map(i => [i.id, i]) : []);
 
-/* "CG - Story", "CG: Story", "[CG] Story" - but not "CGI story". */
+const KINDS = [
+  { key: 'story', label: 'Stories' },
+  { key: 'bug',   label: 'Bugs' },
+  { key: 'task',  label: 'Tasks' }
+];
+
+/* Every state, in workflow order: category first, then the order ADO lists
+   them in. Colours come in a family per category, so "not started", "in
+   flight" and "done" read at a glance, and a state keeps its colour everywhere. */
+const CATEGORY_RANK = { Proposed: 0, InProgress: 1, Resolved: 2, Completed: 3 };
+const STATE_FAMILIES = {
+  Proposed:   ['#8a97a6', '#5b6b7c', '#b4bfcb'],
+  InProgress: ['#3987e5', '#a78bfa', '#c98500', '#d95926', '#5bc0eb', '#e879b9'],
+  Resolved:   ['#2bb3a3', '#7ad3c8'],
+  Completed:  ['#4ade80', '#199e70', '#9be7b4']
+};
+const STATES = (() => {
+  if (!STATS) return [];
+  const known = (STATS.states || []).map(s => s.n.toLowerCase());
+  const seen = new Map();
+  for (const item of STATS.items) {
+    if (seen.has(item.s)) continue;
+    const pos = known.indexOf((item.s || '').toLowerCase());
+    seen.set(item.s, { name: item.s, g: item.g, pos: pos < 0 ? 999 : pos });
+  }
+  const list = [...seen.values()].sort((a, b) =>
+    (CATEGORY_RANK[a.g] ?? 1) - (CATEGORY_RANK[b.g] ?? 1) || a.pos - b.pos || a.name.localeCompare(b.name));
+  const used = {};
+  for (const state of list) {
+    const family = STATE_FAMILIES[state.g] || STATE_FAMILIES.InProgress;
+    const n = used[state.g] = (used[state.g] || 0) + 1;
+    state.color = family[(n - 1) % family.length];
+  }
+  return list;
+})();
+
+/* When each person was first and last seen doing anything: opening or closing
+   a PR, closing a story, bug or task, or anything on the Activity grid. */
+const ACTIVITY = new Map();
+/* Finished work with a date - a completed PR or a closed item - for comparing
+   someone's output with everyone else's over the same stretch. */
+const WORK_EVENTS = [];
+(() => {
+  const touch = (p, d) => {
+    if (p == null || p < 0 || !d) return;
+    const a = ACTIVITY.get(p);
+    if (!a) ACTIVITY.set(p, { first: d, last: d });
+    else { if (d < a.first) a.first = d; if (d > a.last) a.last = d; }
+  };
+  if (STATS) {
+    for (const pr of STATS.prs) {
+      touch(pr.p, pr.c);
+      if (pr.s === 'completed' || pr.s === 'abandoned') touch(pr.p, pr.x);
+      if (pr.s === 'completed' && pr.x) WORK_EVENTS.push({ p: pr.p, d: pr.x });
+    }
+    for (const item of STATS.items) {
+      if (!item.c) continue;
+      touch(item.p, item.c);
+      if (item.p >= 0) WORK_EVENTS.push({ p: item.p, d: item.c });
+    }
+  }
+  for (const evt of DATA.events) touch(evt.p, evt.d);
+})();
+
+/* "SCH - Story", "SCH: Story", "[SCH] Story" - but not "SCHEMA story". */
 function hasTitlePrefix(title, prefix) {
   const t = (title || '').trimStart().toLowerCase();
   if (t.startsWith('[' + prefix + ']')) return true;
@@ -849,10 +962,10 @@ function teamModel(team) {
     return areas.some(a => path === a || path.startsWith(a + '\\'));
   };
   const titled = item => prefixes.some(p => hasTitlePrefix(item.t, p));
-  // A task rarely carries the prefix itself, so it goes with its story.
+  // A task or bug rarely carries the prefix itself, so it goes with its story.
   const owns = item => {
     if (underArea(item) || titled(item)) return true;
-    const parent = item.k === 'task' && item.par != null ? ITEMS_BY_ID.get(item.par) : null;
+    const parent = item.k !== 'story' && item.par != null ? ITEMS_BY_ID.get(item.par) : null;
     return !!parent && titled(parent);
   };
   // Area paths or title prefixes mark out the team's own backlog; without
@@ -871,62 +984,131 @@ function teamModel(team) {
   }
   const members = new Set(memberIds);
 
-  const items   = STATS.items.filter(item => scoped ? owns(item) : members.has(item.p));
+  const items = STATS.items.filter(item => scoped ? owns(item) : members.has(item.p));
+  const scope = workScope(prs, items);
+  const { done, open, unit, avgSize, openValue, velocity } = scope;
+
+  const first     = velocity.findIndex(v => v > 0);
+  const recent    = recentSprints(first);
+  const remaining = sum(open, openValue);
+  const fc        = forecast(recent.map(i => velocity[i]), remaining);
+  const people    = personRows(memberIds, scope, recent);
+
+  return {
+    team, unit, avgSize, prs, items, people, done, open, velocity, recent, remaining,
+    // The charts start a sprint before the team first closed anything.
+    chartFrom:     Math.max(0, first - 1),
+    forecast:      fc,
+    closedCount:   scope.closedCount,
+    contributors:  people.filter(p => p.velocity > 0).length,
+    openUnpointed: open.filter(i => i.pts == null).length,
+    byCategory:    Object.fromEntries(['Proposed', 'InProgress', 'Resolved']
+                     .map(g => [g, sum(open.filter(i => i.g === g), openValue)])),
+    taskHours:     sum(scope.openTasks, t => t.rem)
+  };
+}
+
+/* What a set of PRs and work items adds up to. Only stories count towards
+   velocity: bugs and tasks are counted as work done, never as points. */
+function workScope(prs, items) {
   const stories = items.filter(i => i.k === 'story');
   const done    = stories.filter(i => i.g === 'Completed');
   const open    = stories.filter(i => i.g !== 'Completed');
-  const tasks   = items.filter(i => i.k === 'task' && i.rem != null);
 
-  // Points when the team points its work, a plain story count when it doesn't.
-  // Open stories with no points count at the team's average story size.
+  // Points when the work is pointed, a plain story count when it isn't.
+  // Open stories with no points count at the average story size.
   const pointedDone = done.filter(i => i.pts != null);
   const unit      = pointedDone.length ? 'pts' : 'stories';
   const avgSize   = pointedDone.length ? mean(pointedDone.map(i => i.pts)) : 1;
   const doneValue = i => unit === 'pts' ? (i.pts || 0) : 1;
   const openValue = i => unit === 'pts' ? (i.pts != null ? i.pts : avgSize) : 1;
+  const bySprint  = list => SPRINTS.map((s, idx) => sum(list.filter(i => i.si === idx), doneValue));
 
-  const bySprint = list => SPRINTS.map((s, idx) => sum(list.filter(i => i.si === idx), doneValue));
-  const recent   = recentSprints();
+  return {
+    prs, items, stories, done, open, unit, avgSize, openValue, bySprint,
+    velocity:    bySprint(done),
+    closedCount: SPRINTS.map((s, idx) => done.filter(i => i.si === idx).length),
+    closedBugs:  items.filter(i => i.k === 'bug' && i.g === 'Completed'),
+    closedTasks: items.filter(i => i.k === 'task' && i.g === 'Completed'),
+    openTasks:   items.filter(i => i.k === 'task' && i.g !== 'Completed' && i.rem != null)
+  };
+}
 
-  const velocity  = bySprint(done);
-  const remaining = sum(open, openValue);
-  const fc        = forecast(recent.map(i => velocity[i]), remaining);
+const workTotal = w => w.prs + w.stories + w.bugs + w.tasks;
+const byWorkDone = (a, b) => b.workDone - a.workDone || b.points - a.points || a.name.localeCompare(b.name);
 
-  const people = memberIds.map(id => {
-    const myPrs       = prs.filter(pr => pr.p === id);
-    const myDone      = done.filter(i => i.p === id);
-    const myOpen      = open.filter(i => i.p === id);
-    const myPointed   = myDone.filter(i => i.pts != null);
-    const mySprints   = bySprint(myDone);
-    const myVelocity  = mean(recent.map(i => mySprints[i]));
-    const myRemaining = sum(myOpen, openValue);
+/* One row per person, busiest first. "Work done" is everything they finished:
+   completed PRs plus closed stories, bugs and tasks. */
+function personRows(ids, scope, recent) {
+  const { prs, done, open, closedBugs, closedTasks, openTasks, openValue, bySprint } = scope;
+  return ids.map(id => {
+    const myPrs     = prs.filter(pr => pr.p === id);
+    const myDone    = done.filter(i => i.p === id);
+    const myOpen    = open.filter(i => i.p === id);
+    const myPointed = myDone.filter(i => i.pts != null);
+    const mySprints = bySprint(myDone);
+    const act       = activityOf(id);
+    // Someone who joined last month is averaged over the sprints they were here for.
+    const myRecent  = act ? recent.filter(i => SPRINTS[i].to.getTime() > act.since.getTime()) : recent;
+    const velocity  = mean(myRecent.map(i => mySprints[i]));
+    const remaining = sum(myOpen, openValue);
+    const prCounts  = Object.fromEntries(PR_STATES.map(s => [s.key, myPrs.filter(pr => pr.s === s.key).length]));
+    const work = {
+      prs:     prCounts.completed,
+      stories: myDone.length,
+      bugs:    closedBugs.filter(i => i.p === id).length,
+      tasks:   closedTasks.filter(i => i.p === id).length
+    };
     return {
       id,
       name:      (peopleById.get(id) || { name: 'Unknown' }).name,
-      prs:       Object.fromEntries(PR_STATES.map(s => [s.key, myPrs.filter(pr => pr.s === s.key).length])),
+      prs:       prCounts,
       prTotal:   myPrs.length,
       done:      myDone.length,
       points:    sum(myPointed, i => i.pts),
       avgPoints: myPointed.length ? mean(myPointed.map(i => i.pts)) : null,
       sprints:   mySprints,
-      velocity:  myVelocity,
+      velocity,
       open:      myOpen.length,
-      remaining: myRemaining,
-      workdays:  myRemaining <= 0 ? 0 : myVelocity > 0 ? myRemaining / myVelocity * SPRINT_WORKDAYS : Infinity,
-      taskHours: sum(tasks.filter(t => t.p === id), t => t.rem)
+      remaining,
+      workdays:  remaining <= 0 ? 0 : velocity > 0 ? remaining / velocity * SPRINT_WORKDAYS : Infinity,
+      taskHours: sum(openTasks.filter(t => t.p === id), t => t.rem),
+      work,
+      workDone:  workTotal(work),
+      act
     };
-  }).sort((a, b) => b.velocity - a.velocity || a.name.localeCompare(b.name));
+  }).sort(byWorkDone);
+}
 
+/* A person's stretch of activity, clipped to the stats window - before it
+   Snoop has no record of anyone, so it can't compare. */
+function activityOf(id) {
+  const a = ACTIVITY.get(id);
+  if (!a) return null;
+  const windowStart = toDate(STATS.from);
+  const first = toDate(a.first), last = toDate(a.last);
+  const since = first < windowStart ? windowStart : first;
+  const until = last < since ? since : last;
   return {
-    team, unit, avgSize, prs, people, done, open, velocity, recent, remaining,
-    forecast:      fc,
-    closedCount:   SPRINTS.map((s, idx) => done.filter(i => i.si === idx).length),
-    contributors:  people.filter(p => p.velocity > 0).length,
-    openUnpointed: open.filter(i => i.pts == null).length,
-    byCategory:    Object.fromEntries(['Proposed', 'InProgress', 'Resolved']
-                     .map(g => [g, sum(open.filter(i => i.g === g), openValue)])),
-    taskHours:     sum(tasks, t => t.rem)
+    since, until,
+    // Active in the window's first week: they were very likely here before it.
+    early: since.getTime() - windowStart.getTime() < 7 * DAY_MS,
+    days:  Math.round((until - since) / DAY_MS) + 1,
+    workdays: Math.max(1, weekdaysBetween(since, new Date(until.getTime() + DAY_MS)))
   };
+}
+
+/* What share of everyone's finished work over the same stretch was theirs. */
+function shareWhileActive(id, act) {
+  if (!act) return null;
+  const from = act.since.toISOString().slice(0, 10), to = act.until.toISOString().slice(0, 10);
+  let mine = 0, all = 0;
+  for (const e of WORK_EVENTS) {
+    if (e.d < from || e.d > to) continue;
+    all++;
+    if (e.p === id) mine++;
+  }
+  return all ? mine / all : null;
 }
 
 /* ---------- chart pieces ---------- */
@@ -987,21 +1169,25 @@ function velocityChart(model) {
   const plotW = W - CHART.l - CHART.r, plotH = H - CHART.t - CHART.b;
   const recent = new Set(model.recent);
   const avg    = model.forecast.rates.avg;
-  const scale  = niceScale(Math.max(...model.velocity, avg, 1));
+  const from   = model.chartFrom || 0;
+  const shown  = SPRINTS.slice(from);
+  const scale  = niceScale(Math.max(...model.velocity.slice(from), avg, 1));
   const y      = v => CHART.t + plotH - (v / scale.top) * plotH;
 
   const box = chartBox(`Velocity (${model.unit} closed per sprint)`,
-    `${STATS.sprintDays}-day sprints. Solid columns feed the forecast; faded ones are older` +
+    `${STATS.sprintDays}-day sprints` + (from > 0 ? ', from the sprint before the first story was closed' : '') +
+    '. Solid columns feed the forecast; faded ones are older' +
     (SPRINTS.some(s => !s.complete) ? ', and the palest is the sprint in progress.' : '.'));
   const root = svg('svg', { viewBox: `0 0 ${W} ${H}` });
   yAxis(root, scale, y, CHART.l, W - CHART.r);
 
-  const band       = plotW / Math.max(SPRINTS.length, 1);
+  const band       = plotW / Math.max(shown.length, 1);
   const barW       = Math.min(24, band * 0.62);
   const labelEvery = Math.ceil(46 / band);
 
-  SPRINTS.forEach((s, i) => {
-    const x0 = CHART.l + i * band;
+  shown.forEach((s, j) => {
+    const i  = from + j;
+    const x0 = CHART.l + j * band;
     const v  = model.velocity[i];
     const tip = `${shortDay(s.from)} - ${shortDay(s.last)}${s.complete ? '' : ' (in progress)'}\n` +
                 `${fmt(v)} ${model.unit} - ${plural(model.closedCount[i], 'story')} closed` +
@@ -1016,15 +1202,15 @@ function velocityChart(model) {
       }));
     }
     root.appendChild(g);
-    if ((SPRINTS.length - 1 - i) % labelEvery === 0) {
+    if ((shown.length - 1 - j) % labelEvery === 0) {
       root.appendChild(svg('text', { x: x0 + band / 2, y: H - 8, 'text-anchor': 'middle' },
         s.complete ? shortDay(s.from) : 'now'));
     }
   });
 
   if (model.recent.length && avg > 0) {
-    const x1 = CHART.l + model.recent[0] * band;
-    const x2 = CHART.l + (model.recent[model.recent.length - 1] + 1) * band;
+    const x1 = CHART.l + (model.recent[0] - from) * band;
+    const x2 = CHART.l + (model.recent[model.recent.length - 1] - from + 1) * band;
     root.appendChild(svg('line', { x1, x2, y1: y(avg), y2: y(avg), stroke: 'var(--text)', 'stroke-width': 1, 'pointer-events': 'none' }));
     // Labelled in the right margin, where no column can sit on it.
     root.appendChild(svg('line', { x1: x2, x2: W - CHART.r + 4, y1: y(avg), y2: y(avg), stroke: 'var(--text)', 'stroke-width': 1, 'stroke-opacity': 0.35 }));
@@ -1044,12 +1230,13 @@ function burnupChart(model) {
   const fc    = model.forecast;
   const len   = STATS.sprintDays * DAY_MS;
   const now   = TODAY.getTime() + DAY_MS;
-  const start = SPRINTS.length ? SPRINTS[0].from.getTime() : TODAY.getTime();
+  const from  = model.chartFrom || 0;
+  const start = SPRINTS.length ? SPRINTS[from].from.getTime() : TODAY.getTime();
 
-  let running = 0;
-  const history = [{ t: start, v: 0 }];
-  SPRINTS.forEach((s, i) => {
-    running += model.velocity[i];
+  let running = sum(model.velocity.slice(0, from));
+  const history = [{ t: start, v: running }];
+  SPRINTS.slice(from).forEach((s, j) => {
+    running += model.velocity[from + j];
     history.push({ t: Math.min(s.to.getTime(), now), v: running, s });
   });
   const doneNow = running;
@@ -1160,6 +1347,84 @@ function sparkline(values, max) {
 
 /* ---------- team sections ---------- */
 
+/* A link that opens exactly these work items as an unsaved query in Azure
+   DevOps. The ids go in the URL, so a very large set is cut to the newest that
+   fit - Azure DevOps turns away URLs much over 8 KB. */
+const ADO_URL_BUDGET = 7000;
+function adoQuery(items) {
+  if (!STATS.wiOrg || !(STATS.wiProjects || []).length || !items.length) return null;
+  // The query runs from one project; most items will share it.
+  const byProject = new Map();
+  for (const i of items) byProject.set(i.pj || 0, (byProject.get(i.pj || 0) || 0) + 1);
+  const pj = [...byProject].sort((a, b) => b[1] - a[1])[0][0];
+  const project = STATS.wiProjects[pj] || STATS.wiProjects[0];
+
+  const base = `https://dev.azure.com/${encodeURIComponent(STATS.wiOrg)}/${encodeURIComponent(project)}/_queries/query/?wiql=`;
+  const head = 'SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.AssignedTo] ' +
+               'FROM WorkItems WHERE [System.Id] IN (';
+  const tail = ') ORDER BY [System.Id] DESC';
+  let length = base.length + encodeURIComponent(head + tail).length;
+  const ids = [];
+  for (const id of items.map(i => i.id).sort((a, b) => b - a)) {
+    length += encodeURIComponent((ids.length ? ',' : '') + id).length;
+    if (length > ADO_URL_BUDGET) break;
+    ids.push(id);
+  }
+  return {
+    url: base + encodeURIComponent(head + ids.join(',') + tail),
+    note: ids.length < items.length
+      ? `Click to open the newest ${ids.length} of these in Azure DevOps (the link can't hold all ${items.length})`
+      : 'Click to open these in Azure DevOps'
+  };
+}
+
+function linkTo(query, cls, text) {
+  if (!query) return el('div', cls, text);
+  const a = el('a', cls, text);
+  a.href = query.url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  return a;
+}
+
+/* One 100% bar per kind - stories, bugs, tasks - split by state. */
+function breakdownChart(items, sub) {
+  const present = STATES.filter(s => items.some(i => i.s === s.name));
+  const box = chartBox('Stories, bugs and tasks by state', sub + ' Click a segment or count to open those items in Azure DevOps.',
+    present.map(s => ({ label: s.name, color: s.color })));
+  box.classList.add('wide');
+
+  for (const kind of KINDS) {
+    const list = items.filter(i => i.k === kind.key);
+    const row = el('div', 'brow');
+    row.appendChild(el('div', 'blabel', kind.label));
+    const all = adoQuery(list);
+    const count = row.appendChild(linkTo(all, 'bcount', list.length));
+    if (all) count.dataset.tip = `All ${list.length} ${kind.label.toLowerCase()}\n${all.note}`;
+    const bar = el('div', 'bbar');
+    const parts = [];
+    for (const state of present) {
+      const matching = list.filter(i => i.s === state.name);
+      const n = matching.length;
+      if (!n) continue;
+      const pct = 100 * n / list.length;
+      const pctText = pct < 1 ? '<1%' : Math.round(pct) + '%';
+      const query = adoQuery(matching);
+      const seg = linkTo(query, 'seg', pct >= 6 ? pctText : '');
+      seg.style.flex = String(n);
+      seg.style.background = state.color;
+      seg.dataset.tip = `${kind.label} - ${state.name}: ${n} of ${list.length} (${pctText})` + (query ? `\n${query.note}` : '');
+      bar.appendChild(seg);
+      parts.push(`${state.name} ${n} (${pctText})`);
+    }
+    if (!list.length) bar.appendChild(el('span', 'caption', 'none'));
+    row.appendChild(bar);
+    if (parts.length) row.appendChild(el('div', 'caption', parts.join('  ·  ')));
+    box.appendChild(row);
+  }
+  return box;
+}
+
 function tile(label, value, unit, sub, lead) {
   const box = el('div', 'tile' + (lead ? ' lead' : ''));
   box.appendChild(el('div', 'label', label));
@@ -1176,7 +1441,7 @@ function finishText(fc) {
   const slow = fc.low.date ? longDay(fc.low.date) : 'never at the slow pace';
   return {
     value: longDay(fc.avg.date),
-    sub: `~${fmt(Math.ceil(fc.avg.workdays))} working days (${fmt(fc.avg.sprints)} sprints)\n` +
+    sub: `~${fmt(Math.ceil(fc.avg.workdays))} working days from today (${fmt(fc.avg.sprints)} sprints)\n` +
          `range ${shortDay(fc.high.date)} - ${slow}`
   };
 }
@@ -1208,9 +1473,13 @@ function renderTeamSection(model, index) {
   const finish = finishText(fc);
   tiles.appendChild(tile('Likely finish', finish.value, '', finish.sub, true));
 
+  // Total effort, not calendar time: the team works these days side by side.
   const devDays = fc.avg.workdays * model.contributors;
-  tiles.appendChild(tile('Effort left', isFinite(devDays) && model.contributors ? fmt(Math.ceil(devDays)) : '-', 'dev-days',
-    `${model.contributors} ${model.contributors === 1 ? 'person' : 'people'} closing work at the current pace`));
+  const people  = `${model.contributors} ${model.contributors === 1 ? 'person' : 'people'}`;
+  tiles.appendChild(tile('Effort left', isFinite(devDays) && model.contributors ? fmt(Math.ceil(devDays)) : '-', 'person-days',
+    isFinite(fc.avg.workdays) && fc.remaining > 0
+      ? `~${fmt(Math.ceil(fc.avg.workdays))} working days × ${people} closing work.\nCombined effort, not calendar time - see Likely finish.`
+      : `${people} closing work at the current pace`));
 
   if (model.taskHours > 0) {
     tiles.appendChild(tile('Task estimates', fmt(model.taskHours), 'h left',
@@ -1225,9 +1494,38 @@ function renderTeamSection(model, index) {
   const charts = el('div', 'charts');
   charts.appendChild(velocityChart(model));
   charts.appendChild(burnupChart(model));
+  charts.appendChild(breakdownChart(model.items,
+    `Everything in this team's backlog: open now, plus closed since ${longDay(toDate(STATS.from))}. Hover a segment for its count.`));
   section.appendChild(charts);
 
-  section.appendChild(el('h3', null, 'MEMBERS'));
+  section.appendChild(el('h3', null, 'MEMBERS - MOST WORK DONE FIRST'));
+  section.appendChild(prLegend());
+  section.appendChild(personTable(model.people, unit, { from: model.chartFrom, daysToClear: true }));
+
+  const note = el('p', 'note');
+  note.innerHTML =
+    `<b>How this is worked out.</b> Velocity is ${unit === 'pts' ? 'story points' : 'stories (nothing here is pointed)'} ` +
+    `closed per ${STATS.sprintDays}-day sprint, averaged over the last ${plural(k, 'sprint')} since the team first closed a story; ` +
+    `the range uses the slower and faster halves of those sprints. Only stories count - bugs, tasks and features never add points. ` +
+    `Open work divided by velocity gives the sprints left, and so the likely finish. ` +
+    `Effort left multiplies those working days by the people currently closing work: it is combined effort in person-days, ` +
+    `not how long it will take. A person's "days to clear" is their own open work at their own pace. ` +
+    `Work done counts completed PRs plus closed stories, bugs and tasks. ` +
+    (team.areaPaths.length || (team.titlePrefixes || []).length
+      ? 'The backlog is every open story, bug and task ' +
+        [team.areaPaths.length ? 'under this team\'s area paths' : '',
+         (team.titlePrefixes || []).length ? `titled ${team.titlePrefixes.map(p => `"${p} - ..."`).join(' or ')}` : '']
+          .filter(Boolean).join(' or ') +
+        ', assigned or not; tasks and bugs go with their story. '
+      : 'The backlog is the open work assigned to these members, so unassigned stories aren\'t counted. ' +
+        'Add <code>titlePrefixes</code> or <code>areaPaths</code> to this team to include them. ') +
+    (team.members ? '' : 'Members are everyone with a PR in these repos since the stats window began. ') +
+    'PR counts cover PRs opened in these repos since then, plus any still open.';
+  section.appendChild(note);
+  return section;
+}
+
+function prLegend() {
   const legend = el('div', 'legend-row');
   for (const s of PR_STATES) {
     const span = el('span');
@@ -1237,51 +1535,83 @@ function renderTeamSection(model, index) {
     span.appendChild(document.createTextNode(s.label + ' PRs'));
     legend.appendChild(span);
   }
-  section.appendChild(legend);
-  section.appendChild(membersTable(model));
-
-  const note = el('p', 'note');
-  note.innerHTML =
-    `<b>How this is worked out.</b> Velocity is ${unit === 'pts' ? 'story points' : 'stories (nothing here is pointed)'} ` +
-    `closed per ${STATS.sprintDays}-day sprint, averaged over the last ${plural(k, 'sprint')}; ` +
-    `the range uses the slower and faster halves of those sprints. Open work divided by velocity gives the sprints left. ` +
-    `Dev-days multiply that by the people currently closing work, and a person's "days to clear" is their own open work at their own pace. ` +
-    (team.areaPaths.length || (team.titlePrefixes || []).length
-      ? 'The backlog is every open story ' +
-        [team.areaPaths.length ? 'under this team\'s area paths' : '',
-         (team.titlePrefixes || []).length ? `titled ${team.titlePrefixes.map(p => `"${p} - ..."`).join(' or ')}` : '']
-          .filter(Boolean).join(' or ') +
-        ', assigned or not; tasks go with their story. '
-      : 'The backlog is the open stories assigned to these members, so unassigned stories aren\'t counted. ' +
-        'Add <code>titlePrefixes</code> or <code>areaPaths</code> to this team to include them. ') +
-    (team.members ? '' : 'Members are everyone with a PR in these repos since the stats window began. ') +
-    'PR counts cover PRs opened in these repos since then, plus any still open.';
-  section.appendChild(note);
-  return section;
+  return legend;
 }
 
-function membersTable(model) {
-  const unit   = model.unit;
-  const maxPr  = Math.max(1, ...model.people.map(p => p.prTotal));
-  const maxPts = Math.max(1, ...model.people.map(p => p.points));
-  const maxSpark = Math.max(1, ...model.people.flatMap(p => p.sprints.filter((v, i) => SPRINTS[i].complete)));
+/* People, busiest first. opts.activity adds when each person was active and how
+   their output compares with everyone's over that stretch (the People tab). */
+function personTable(rows, unit, opts = {}) {
+  const from     = opts.from || 0;
+  const maxPr    = Math.max(1, ...rows.map(p => p.prTotal));
+  const maxPts   = Math.max(1, ...rows.map(p => p.points));
+  const maxWork  = Math.max(1, ...rows.map(p => p.workDone));
+  const sprintOk = (v, i) => i >= from && SPRINTS[i].complete;
+  const maxSpark = Math.max(1, ...rows.flatMap(p => p.sprints.filter(sprintOk)));
 
   const table = el('table', 'members');
   const head = el('tr');
-  [['Person', 'who'], ['Pull requests', 'who'], ['Open drafts'], ['Stories closed'], ['Points closed'],
-   ['Avg pts / story'], [`Velocity (${unit} / sprint)`, 'who'], ['Open stories'], [`Open ${unit}`],
-   ['Days to clear'], ['Task hrs left']]
-    .forEach(([label, cls]) => head.appendChild(el('th', cls || null, label)));
+  const columns = [['Person', 'who']];
+  if (opts.activity) columns.push(['Teams', 'who'], ['First active'], ['Last active'], ['Days active']);
+  columns.push(['Work done', 'who']);
+  if (opts.activity) columns.push(['Pace / sprint'], ['Share while active']);
+  columns.push(['Pull requests', 'who'], ['Open drafts'], ['Stories closed'], ['Points closed'],
+    ['Avg pts / story'], [`Velocity (${unit} / sprint)`, 'who'], ['Open stories'], [`Open ${unit}`]);
+  if (opts.daysToClear) columns.push(['Days to clear']);
+  columns.push(['Task hrs left']);
+  columns.forEach(([label, cls]) => head.appendChild(el('th', cls || null, label)));
   const thead = el('thead'); thead.appendChild(head); table.appendChild(thead);
 
-  const num = (tr, n, text) => tr.appendChild(el('td', n ? null : 'zero', text != null ? text : fmt(n)));
+  const num = (tr, n, text, tip) => {
+    const td = tr.appendChild(el('td', n ? null : 'zero', text != null ? text : fmt(n)));
+    if (tip) td.dataset.tip = tip;
+    return td;
+  };
   const body = el('tbody');
 
-  for (const p of model.people) {
+  for (const p of rows) {
     const tr = el('tr');
     tr.appendChild(el('td', 'who', p.name));
 
-    // PRs: bar length is volume against the busiest member, segments are outcomes.
+    const act = p.act;
+    if (opts.activity) {
+      const teams = opts.teamsOf ? opts.teamsOf(p.id) : [];
+      tr.appendChild(el('td', 'who' + (teams.length ? '' : ' zero'), teams.length ? teams.join(', ') : '-'));
+      const firstCell = num(tr, act ? 1 : 0, act ? shortDay(act.since) : '-');
+      if (act && act.early) {
+        firstCell.appendChild(el('span', 'flag', ' *'));
+        firstCell.dataset.tip = `Already active when Snoop's history starts (${longDay(toDate(STATS.from))}),\n` +
+          `so they very likely started earlier. Raise stats.monthsBack to look further back.`;
+      }
+      num(tr, act ? 1 : 0, act ? shortDay(act.until) : '-');
+      num(tr, act ? act.days : 0, act ? fmt(act.days) : '-',
+        act ? `${longDay(act.since)} - ${longDay(act.until)}\n${fmt(act.workdays)} working days` : null);
+    }
+
+    // Work done: bar length against the busiest person, what it's made of underneath.
+    const w = p.work;
+    const workCell = el('td', 'who' + (p.workDone ? '' : ' zero'));
+    if (p.workDone) {
+      const bar = el('span', 'hbar');
+      bar.style.width = Math.max(2, 90 * p.workDone / maxWork) + 'px';
+      workCell.appendChild(bar);
+    }
+    workCell.appendChild(document.createTextNode(fmt(p.workDone)));
+    const parts = [[w.prs, 'PR'], [w.stories, 'story'], [w.bugs, 'bug'], [w.tasks, 'task']]
+      .filter(([n]) => n).map(([n, word]) => plural(n, word));
+    workCell.appendChild(el('div', 'caption', parts.length ? parts.join(' · ') : 'nothing finished'));
+    workCell.dataset.tip = `Completed PRs: ${w.prs}\nStories closed: ${w.stories}\nBugs closed: ${w.bugs}\nTasks closed: ${w.tasks}`;
+    tr.appendChild(workCell);
+
+    if (opts.activity) {
+      const pace = act ? p.workDone / Math.max(1, act.workdays / SPRINT_WORKDAYS) : null;
+      num(tr, pace, pace == null ? '-' : fmt(pace),
+        act ? `${fmt(p.workDone)} finished over ${fmt(act.workdays)} working days active\n= ${fmt(pace)} per ${STATS.sprintDays}-day sprint` : null);
+      const share = shareWhileActive(p.id, act);
+      num(tr, share, share == null ? '-' : Math.round(share * 100) + '%',
+        share == null ? null : `${Math.round(share * 100)}% of all work finished by anyone\nbetween ${longDay(act.since)} and ${longDay(act.until)}`);
+    }
+
+    // PRs: bar length is volume against the busiest person, segments are outcomes.
     const prCell = el('td', 'stackcell');
     if (p.prTotal) {
       const pct = n => Math.round(100 * n / p.prTotal);
@@ -1326,15 +1656,15 @@ function membersTable(model) {
     num(tr, p.avgPoints);
 
     const velCell = el('td', 'who');
-    const complete = p.sprints.filter((v, i) => SPRINTS[i].complete);
-    velCell.appendChild(sparkline(complete, maxSpark));
+    velCell.appendChild(sparkline(p.sprints.filter(sprintOk), maxSpark));
     velCell.appendChild(document.createTextNode(fmt(p.velocity)));
-    velCell.dataset.tip = SPRINTS.map((s, i) => `${shortDay(s.from)}${s.complete ? '' : ' (now)'}: ${fmt(p.sprints[i])}`).join('\n');
+    velCell.dataset.tip = SPRINTS.map((s, i) => i < from ? null : `${shortDay(s.from)}${s.complete ? '' : ' (now)'}: ${fmt(p.sprints[i])}`)
+      .filter(Boolean).join('\n');
     tr.appendChild(velCell);
 
     num(tr, p.open);
     num(tr, p.remaining);
-    num(tr, p.workdays, p.remaining <= 0 ? '-' : isFinite(p.workdays) ? fmt(Math.ceil(p.workdays)) : 'no pace yet');
+    if (opts.daysToClear) num(tr, p.workdays, p.remaining <= 0 ? '-' : isFinite(p.workdays) ? fmt(Math.ceil(p.workdays)) : 'no pace yet');
     num(tr, p.taskHours);
     body.appendChild(tr);
   }
@@ -1361,10 +1691,7 @@ function renderTeamOverview(models) {
     const fc = model.forecast;
     const tr = el('tr');
     const who = el('td', 'who');
-    const link = el('a', 'teamlink', model.team.name);
-    link.href = '#team-' + index;
-    link.addEventListener('click', e => { e.preventDefault(); document.getElementById('team-' + index).scrollIntoView({ behavior: 'smooth' }); });
-    who.appendChild(link);
+    who.appendChild(teamLink(model.team.name, index));
     tr.appendChild(who);
     tr.appendChild(el('td', null, model.people.length));
     tr.appendChild(el('td', null, `${fmt(fc.rates.avg)} ${model.unit}`));
@@ -1386,6 +1713,24 @@ function renderTeamOverview(models) {
   return box;
 }
 
+let TEAM_MODELS = [];
+
+/* The Teams tab shows one team at a time, picked from a row of sub-tabs, with
+   an overview of them all when there's more than one. */
+function teamLink(label, key) {
+  const link = el('a', 'teamlink' + (key === teamState.selected ? ' on' : ''), label);
+  link.href = '#teams' + (key === 'overview' ? '' : '/' + key);
+  link.addEventListener('click', e => { e.preventDefault(); selectTeam(key); });
+  return link;
+}
+
+function selectTeam(key) {
+  teamState.selected = key;
+  renderTeams();
+  showView('teams');
+  document.querySelector('.main').scrollTop = 0;
+}
+
 function renderTeams() {
   const view = document.getElementById('teamsView');
   view.innerHTML = '';
@@ -1394,20 +1739,74 @@ function renderTeams() {
     return;
   }
 
-  const models = STATS.teams.map(teamModel);
-  view.appendChild(renderTeamOverview(models));
-  models.forEach((model, index) => view.appendChild(renderTeamSection(model, index)));
+  const models = TEAM_MODELS = STATS.teams.map(teamModel);
+  const several = models.length > 1;
+  if (teamState.selected === 'overview' ? !several : !models[teamState.selected]) {
+    teamState.selected = several ? 'overview' : 0;
+  }
+
+  const tabs = el('div', 'subtabs');
+  const keys = [...(several ? [['overview', 'Overview']] : []), ...models.map((m, i) => [i, m.team.name])];
+  for (const [key, label] of keys) {
+    const button = el('button', key === teamState.selected ? 'on' : null, label);
+    button.type = 'button';
+    button.addEventListener('click', () => selectTeam(key));
+    tabs.appendChild(button);
+  }
+  view.appendChild(tabs);
+
+  view.appendChild(teamState.selected === 'overview'
+    ? renderTeamOverview(models)
+    : renderTeamSection(models[teamState.selected], teamState.selected));
 
   const links = document.getElementById('teamLinks');
   links.innerHTML = '';
-  models.forEach((model, index) => {
-    const link = el('a', 'teamlink', model.team.name);
-    link.href = '#team-' + index;
+  for (const [key, label] of keys) {
+    const link = teamLink(label, key);
     link.style.display = 'block';
     link.style.padding = '3px 0';
-    link.addEventListener('click', e => { e.preventDefault(); document.getElementById('team-' + index).scrollIntoView({ behavior: 'smooth' }); });
     links.appendChild(link);
-  });
+  }
+}
+
+/* ---------- people ---------- */
+
+/* Everyone on the roster, across every team and repo. */
+function renderPeople() {
+  const view = document.getElementById('peopleView');
+  view.innerHTML = '';
+  if (!STATS) {
+    view.appendChild(el('div', 'empty-state', 'Stats were skipped for this run (-SkipTeamStats).'));
+    return;
+  }
+
+  const scope  = workScope(STATS.prs, STATS.items);
+  const first  = scope.velocity.findIndex(v => v > 0);
+  const rows   = personRows(DATA.people.map(p => p.id), scope, recentSprints(first));
+  const teamsOf = id => TEAM_MODELS.filter(m => m.people.some(p => p.id === id)).map(m => m.team.name);
+
+  view.appendChild(el('h3', null,
+    `EVERYONE - ALL TEAMS AND REPOS SINCE ${longDay(toDate(STATS.from)).toUpperCase()} - MOST WORK DONE FIRST`));
+  view.appendChild(prLegend());
+  view.appendChild(personTable(rows, scope.unit, { activity: true, teamsOf, from: Math.max(0, first - 1) }));
+
+  const note = el('p', 'note');
+  note.innerHTML =
+    `<b>How this is worked out.</b> Everything here covers every repo and work item project in the config, ` +
+    `not one team. <b>Work done</b> counts completed PRs plus closed stories, bugs and tasks. ` +
+    `<b>First</b> and <b>last active</b> are the first and last time someone opened or closed a PR, closed a work item, ` +
+    `or showed up on the Activity tab; Snoop's history starts ${longDay(toDate(STATS.from))}, ` +
+    `so a <span class="flag">*</span> means they were already active then. <b>Days active</b> is the span between the two. ` +
+    `Because newcomers and old hands have had very different amounts of time, the last two columns even it out: ` +
+    `<b>pace</b> is work done per ${STATS.sprintDays}-day sprint while they were active, and <b>share while active</b> ` +
+    `is their slice of all the work anyone on the roster finished between their first and last active days. ` +
+    `Velocity likewise only averages the sprints since each person's first activity. Only stories count towards points.`;
+  view.appendChild(note);
+}
+
+function renderStats() {
+  renderTeams();
+  renderPeople();
 }
 
 function renderVelocityWindow() {
@@ -1420,13 +1819,12 @@ function renderVelocityWindow() {
     input.type = 'radio';
     input.name = 'velocityWindow';
     input.checked = n === teamState.velocitySprints;
-    input.addEventListener('change', () => { teamState.velocitySprints = n; renderTeams(); });
+    input.addEventListener('change', () => { teamState.velocitySprints = n; renderStats(); });
     label.appendChild(input);
-    label.appendChild(document.createTextNode(n ? `Last ${n} sprints` : 'Every sprint in the window'));
+    label.appendChild(document.createTextNode(n ? `Last ${n} sprints` : 'Every sprint since work began'));
     box.appendChild(label);
   }
 }
-
 /* ---------- tabs and tooltip ---------- */
 
 function showView(view) {
@@ -1435,7 +1833,10 @@ function showView(view) {
   document.getElementById('activityControls').hidden = view !== 'activity';
   document.getElementById('teamsView').hidden        = view !== 'teams';
   document.getElementById('teamControls').hidden     = view !== 'teams';
-  history.replaceState(null, '', '#' + view);
+  document.getElementById('peopleView').hidden       = view !== 'people';
+  document.getElementById('statsControls').hidden    = view === 'activity';
+  const team = view === 'teams' && teamState.selected !== 'overview' ? '/' + teamState.selected : '';
+  history.replaceState(null, '', '#' + view + team);
   // The grid pins its band heights after layout, which needs it on screen.
   if (view === 'activity') render();
 }
@@ -1507,8 +1908,11 @@ renderChrome();
 renderLegend();
 setupRefresh();
 renderVelocityWindow();
-renderTeams();
-showView(location.hash === '#teams' ? 'teams' : 'activity');
+// #teams, #teams/2 (the third team) or #people.
+const [hashView, hashTeam] = location.hash.slice(1).split('/');
+if (hashTeam && /^\d+$/.test(hashTeam)) teamState.selected = Number(hashTeam);
+renderStats();
+showView(['teams', 'people'].includes(hashView) ? hashView : 'activity');
 </script>
 </body>
 </html>

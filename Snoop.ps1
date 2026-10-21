@@ -66,7 +66,6 @@ $ErrorActionPreference = 'Stop'
 $DefaultConfig = [ordered]@{
     organization        = 'contoso'
     project             = 'Apollo'
-    repositories        = @('Apollo')
     daysBack            = 14
     people              = @()
     aliases             = [ordered]@{}
@@ -82,9 +81,9 @@ $DefaultConfig = [ordered]@{
     includeAllBranches  = $true
     maxBranches         = 50
     includeWeekends     = $false
-    # Team name -> its repos (or { repositories, areaPaths, members }). Empty
-    # means one team made of everyone on the roster.
-    teams               = [ordered]@{}
+    # Team name -> its repos (or { repositories, areaPaths, members, enabled }).
+    # The active teams' repos are the repos Snoop looks at.
+    teams               = [ordered]@{ Apollo = @('Apollo') }
     # The Teams view reaches back much further than daysBack: velocity and
     # forecasts need months of closed stories, not a fortnight.
     stats               = [ordered]@{
@@ -125,7 +124,7 @@ function Get-Setting {
 
 $Organization   = Get-Setting 'organization'   $Organization
 $Project        = Get-Setting 'project'        $Project
-$Repository     = @(Get-Setting 'repositories' $Repository)
+$Repository     = @($Repository | Where-Object { $_ })   # filled in from the teams below unless given here
 $DaysBack       = [int](Get-Setting 'daysBack' $DaysBack)
 $People         = @(Get-Setting 'people'       $People)
 $PrLookbackDays = [int](Get-Setting 'prLookbackDays' $null)
@@ -150,6 +149,42 @@ function Get-SubSetting {
     $property = $Parent.PSObject.Properties[$Key]
     if ($property) { return $property.Value }
     return $null
+}
+
+# A team is a set of repos. Written either as a bare list of repo names, or as
+# { repositories, areaPaths, members, enabled } when the default guesses need help:
+#   members   - otherwise anyone with a PR in the team's repos
+#   areaPaths - otherwise the team's backlog is whatever its members are assigned
+#   titlePrefixes - stories titled "SCH - ...", for teams sharing one backlog
+#   enabled   - false leaves the team out without deleting it
+$Teams = @()
+if ($FileConfig.PSObject.Properties['teams'] -and $FileConfig.teams) {
+    foreach ($property in $FileConfig.teams.PSObject.Properties) {
+        $value = $property.Value
+        if ($value -is [array] -or $value -is [string]) { $value = [pscustomobject]@{ repositories = @($value) } }
+        if ((Get-SubSetting $value 'enabled') -eq $false) { continue }
+        $Teams += [pscustomobject]@{
+            Name      = $property.Name
+            Repos     = @(Get-SubSetting $value 'repositories' | Where-Object { $_ })
+            AreaPaths = @(Get-SubSetting $value 'areaPaths' | Where-Object { $_ })
+            TitlePrefixes = @(Get-SubSetting $value 'titlePrefixes' | Where-Object { $_ })
+            Members   = @(Get-SubSetting $value 'members' | Where-Object { $_ })
+        }
+    }
+}
+
+# The repos to watch are the active teams' repos, plus any listed the older way
+# under "repositories".
+if ($Repository.Count -eq 0) {
+    $seenRepos = @{}
+    $Repository = @(
+        @(Get-SubSetting $FileConfig 'repositories') + @($Teams | ForEach-Object { $_.Repos }) |
+            Where-Object { $_ -and -not $seenRepos.ContainsKey("$_".ToLower()) } |
+            ForEach-Object { $seenRepos["$_".ToLower()] = $true; "$_" }
+    )
+}
+if ($Repository.Count -eq 0) {
+    throw "No repositories to look at. Add a team with repositories to $ConfigFile, or pass -Repository."
 }
 
 $workItemConfig = Get-Setting 'workItems' $null
@@ -870,25 +905,7 @@ function Find-PersonId {
     return $resolved
 }
 
-# A team is a set of repos. Written either as a bare list of repo names, or as
-# { repositories, areaPaths, members } when the default guesses need help:
-#   members   - otherwise anyone with a PR in the team's repos
-#   areaPaths - otherwise the team's backlog is whatever its members are assigned
-#   titlePrefixes - stories titled "CG - ...", for teams sharing one backlog
-$Teams = @()
-if ($FileConfig.PSObject.Properties['teams'] -and $FileConfig.teams) {
-    foreach ($property in $FileConfig.teams.PSObject.Properties) {
-        $value = $property.Value
-        if ($value -is [array] -or $value -is [string]) { $value = [pscustomobject]@{ repositories = @($value) } }
-        $Teams += [pscustomobject]@{
-            Name      = $property.Name
-            Repos     = @(Get-SubSetting $value 'repositories' | Where-Object { $_ })
-            AreaPaths = @(Get-SubSetting $value 'areaPaths' | Where-Object { $_ })
-            TitlePrefixes = @(Get-SubSetting $value 'titlePrefixes' | Where-Object { $_ })
-            Members   = @(Get-SubSetting $value 'members' | Where-Object { $_ })
-        }
-    }
-}
+# The teams were read with the rest of the config, near the top.
 if ($Teams.Count -eq 0) {
     $Teams += [pscustomobject]@{
         Name = 'Everyone'; Repos = @($Repository); AreaPaths = @(); TitlePrefixes = @()
@@ -951,9 +968,12 @@ if (-not $SkipTeamStats) {
         }
     }
 
-    $queryTypes   = @($StoryTypes) + @('Task')
+    # Only stories carry points. Bugs and tasks come along as their own kinds;
+    # features and epics sit above stories, so their points would count twice.
+    $queryTypes   = @(@($StoryTypes | Where-Object { $_ -and $_ -notin @('Task', 'Bug', 'Feature', 'Epic') }) + @('Bug', 'Task') | Select-Object -Unique)
     $quote        = { param($s) "'" + ($s -replace "'", "''") + "'" }
     $itemRecords  = New-Object System.Collections.ArrayList
+    $stateOrder   = New-Object System.Collections.ArrayList   # every state seen, in workflow order
 
     # Narrow to the configured area paths, plus any team's own - a team's area
     # path need not sit under the global one.
@@ -962,14 +982,19 @@ if (-not $SkipTeamStats) {
         $statsAreaPaths = @(@($WorkItemAreaPaths) + @($Teams | ForEach-Object { $_.AreaPaths }) | Where-Object { $_ } | Sort-Object -Unique)
     }
 
+    $projectIndex = -1
     foreach ($wiProject in $WorkItemProjects) {
+        $projectIndex++
         $wiBase = "https://dev.azure.com/$WorkItemOrg/$([uri]::EscapeDataString($wiProject))/_apis"
 
         $categories = @{}                       # "type|state" -> category
         foreach ($type in $queryTypes) {
             try {
                 $states = Invoke-Ado -Uri "$wiBase/wit/workitemtypes/$([uri]::EscapeDataString($type))/states?api-version=7.1"
-                foreach ($s in @($states.value)) { $categories["$type|$($s.name)"] = $s.category }
+                foreach ($s in @($states.value)) {
+                    $categories["$type|$($s.name)"] = $s.category
+                    if (-not ($stateOrder | Where-Object { $_.n -eq $s.name })) { [void]$stateOrder.Add([ordered]@{ n = $s.name; g = $s.category }) }
+                }
             }
             catch { }                           # type not in this process - fine
         }
@@ -1011,10 +1036,10 @@ if (-not $SkipTeamStats) {
                 if (-not $category) { $category = Get-FallbackCategory $state }
                 if ($category -eq 'Removed') { continue }
 
-                $isTask = $type -eq 'Task'
+                $kind   = switch ($type) { 'Task' { 'task' } 'Bug' { 'bug' } default { 'story' } }
+                $isTask = $kind -eq 'task'
                 $closed = $null
                 if ($category -eq 'Completed') {
-                    if ($isTask) { continue }       # a finished task says nothing about time left
                     # Changed in the window isn't closed in the window.
                     $closed = $f.'Microsoft.VSTS.Common.ClosedDate'
                     if (-not $closed) { $closed = $f.'Microsoft.VSTS.Common.StateChangeDate' }
@@ -1027,21 +1052,23 @@ if (-not $SkipTeamStats) {
                 $points = $f.'Microsoft.VSTS.Scheduling.StoryPoints'
                 if ($null -eq $points) { $points = $f.'Microsoft.VSTS.Scheduling.Effort' }
                 if ($null -eq $points) { $points = $f.'Microsoft.VSTS.Scheduling.Size' }
+                if ($kind -ne 'story') { $points = $null }
 
                 $assigned = $f.'System.AssignedTo'
                 $person   = if ($assigned) { Find-PersonId -Name $assigned.displayName -Email $assigned.uniqueName } else { -1 }
 
                 [void]$itemRecords.Add([ordered]@{
                     id  = $item.id
+                    pj  = $projectIndex       # index into wiProjects
                     p   = $person
-                    k   = $(if ($isTask) { 'task' } else { 'story' })
+                    k   = $kind               # story | bug | task
                     s   = $state
                     g   = $category           # Proposed | InProgress | Resolved | Completed
                     pts = $(if ($null -ne $points) { [double]$points } else { $null })
                     rem = $(if ($isTask -and $null -ne $f.'Microsoft.VSTS.Scheduling.RemainingWork') { [double]$f.'Microsoft.VSTS.Scheduling.RemainingWork' } else { $null })
                     a   = $f.'System.AreaPath'
                     t   = $f.'System.Title'
-                    # A task's team is its story's.
+                    # A task or bug's team is its story's.
                     par = $(@($item.relations | Where-Object { $_.rel -eq 'System.LinkTypes.Hierarchy-Reverse' } |
                               ForEach-Object { [int](($_.url -split '/')[-1]) }) | Select-Object -First 1)
                     c   = $(if ($closed) { $closed.ToString('yyyy-MM-dd') } else { '' })
@@ -1079,9 +1106,13 @@ if (-not $SkipTeamStats) {
         })
         prs             = $prRecords
         items           = @($itemRecords)
+        states          = @($stateOrder)
+        # For links that open a set of items as a query in Azure DevOps.
+        wiOrg           = $WorkItemOrg
+        wiProjects      = @($WorkItemProjects)
     }
 
-    Write-Host "Team stats: $($prRecords.Count) PRs, $($itemRecords.Count) stories/tasks across $($Teams.Count) team(s)" -ForegroundColor DarkGray
+    Write-Host "Team stats: $($prRecords.Count) PRs, $($itemRecords.Count) stories/bugs/tasks across $($Teams.Count) team(s)" -ForegroundColor DarkGray
 }
 
 # ---------------------------------------------------------------------------

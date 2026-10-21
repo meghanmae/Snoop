@@ -23,13 +23,18 @@ Run it, look at it, close it.
 ```
 
 The first run opens a **Settings** page in your browser: sign in, pick the
-organization, project and repositories (Snoop suggests them from Azure DevOps),
-and save. After that it opens straight to the dashboard.
+organization and project, add a team with its repositories (Snoop suggests them
+from Azure DevOps), and save. After that it opens straight to the dashboard.
 
 - **Refresh** in the sidebar fetches again. Requests run side by side, so a
   refresh takes seconds rather than minutes.
 - **Settings** (under Refresh) edits everything in `snoop.config.json` - teams,
   people, aliases, forecast options. Saving refreshes.
+  - **Import config...** fills the page from a config file (nothing is saved
+    until you press Save); **Export config** downloads the page's settings,
+    unsaved changes included.
+  - Each team has **Duplicate**, to copy it and edit the copy, and an **Active**
+    switch, to leave it out without deleting it.
 - Close the console window to stop it.
 
 **Signing in.** Settings has a **Sign in with Azure CLI** button, which runs
@@ -96,7 +101,9 @@ Everything lives in **`snoop.config.json`**, created on first run:
 {
   "organization": "contoso",
   "project": "Apollo",
-  "repositories": [ "Apollo" ],
+  "teams": {
+    "Apollo": [ "Apollo" ]
+  },
   "daysBack": 14,
   "people": [],
   "aliases": {},
@@ -117,7 +124,8 @@ Everything lives in **`snoop.config.json`**, created on first run:
 |---|---|
 | `organization` | ADO org name, the bit after `dev.azure.com/` |
 | `project` | Project name inside that org |
-| `repositories` | One or more repos. All of them get charted together. |
+| `teams` | The repos to watch, grouped into teams. Every active team's repos get charted together. See [Teams](#teams-velocity-and-forecasts). |
+| `repositories` | Older configs listed repos here, outside any team. Still read; the Settings page moves them into a team. |
 | `daysBack` | Size of the window, in days |
 | `people` | Who to chart. **Leave it empty to auto-pick the most active people.** |
 | `aliases` | Fixes for people whose git handle doesn't resemble their name |
@@ -164,8 +172,9 @@ use a token that org accepts.
 
 ### Teams, velocity and forecasts
 
-The **Teams** tab groups repos into teams and answers "when will this be done?".
-List each team's repos under `teams`:
+The **Teams** tab groups repos into teams and answers "when will this be done?"; the **People** tab compares everyone across all of them.
+Teams are also where the repos come from: the Activity tab charts every active
+team's repos together. List each team's repos under `teams`:
 
 ```json
 "teams": {
@@ -182,6 +191,10 @@ List each team's repos under `teams`:
     "repositories": [ "Contoso.Web.Docs", "Contoso.Api.Docs" ],
     "areaPaths": [ "Apollo\\Docs" ],
     "members": [ "Fletcher, Quinn", "Grant, Sam" ]
+  },
+  "Legacy": {
+    "repositories": [ "Contoso.Web.Legacy" ],
+    "enabled": false
   }
 }
 ```
@@ -193,12 +206,16 @@ A bare list of repos is enough. The longer form fixes the two guesses Snoop make
 | `members` | anyone on the roster with a PR in the team's repos |
 | `areaPaths` / `titlePrefixes` | the team's backlog is the open stories assigned to its members, so unassigned stories are missed |
 
+`"enabled": false` switches a team off without deleting it: its repos, members
+and backlog are left out until it's switched back on.
+
 Use `titlePrefixes` when several teams share one backlog and name their stories
-`CG - ...`, `CG: ...` or `[CG] ...`. Matching ignores case and needs the whole tag,
-so `CG` doesn't catch `CGI ...`. A task belongs to its parent story's team. A team
+`SCH - ...`, `SCH: ...` or `[SCH] ...`. Matching ignores case and needs the whole tag,
+so `SCH` doesn't catch `SCHEMA ...`. A task belongs to its parent story's team. A team
 can have both: a story under its area paths *or* with its prefix counts.
 
-No `teams` at all gives one team made of everyone on the roster.
+No active `teams` at all (only an old-style `repositories` list) gives one team
+made of everyone on the roster.
 
 The Teams tab looks back much further than `daysBack`, set under `stats`:
 
@@ -208,32 +225,51 @@ The Teams tab looks back much further than `daysBack`, set under `stats`:
 | `sprintLengthDays` | Sprint length (default 14) |
 | `sprintAnchorDate` | The first day of any one sprint, e.g. `"2026-01-05"`, so the periods line up with your real sprints and the sprint in progress stays out of the average. Without it, sprints are rolling periods ending today. |
 | `velocitySprints` | How many recent sprints the forecast averages (default 6; also switchable on the page) |
-| `storyTypes` | Work item types that carry points (default User Story / PBI / Story) |
+| `storyTypes` | Work item types that carry points (default User Story / PBI / Story). Bugs, tasks, features and epics never count towards points, even if listed: bugs and tasks are tracked as their own kinds, and features and epics are left out. |
 | `hoursPerDevDay` | Converts task Remaining Work hours into dev-days (default 6) |
 
-For each team it shows:
+Each team gets its own tab (with an **Overview** tab comparing them all when
+there's more than one). For each team it shows:
 
-- **Velocity**: points closed per sprint, averaged over recent sprints, with a slow
+- **Velocity**: story points closed per sprint, averaged over recent sprints, with a slow
   and fast figure from the slower and faster halves of those sprints. Teams that
-  don't point their stories get a story count instead.
+  don't point their stories get a story count instead. Sprints before the team
+  first closed a story are left out of the average.
 - **Open work**: points on every story not Done or Removed (state categories come
   from ADO, so Closed, Done, Cut etc. all work), split into not started, in
   progress and resolved. Unpointed stories count at the team's average story size.
-- **Likely finish**: open work ÷ velocity, as working days and a date, with the
-  slow–fast range. Also shown as **dev-days** of effort, and as task hours if
-  your tasks carry Remaining Work.
-- **Charts**: velocity per sprint, and a burn-up with the forecast running forward.
-- **Per member**: PRs split into completed / abandoned / active / draft, open
-  drafts, stories and points closed, average points per story, a velocity
+- **Likely finish**: open work ÷ velocity, as working days from today and a date,
+  with the slow–fast range.
+- **Effort left**: those working days × the people currently closing work, in
+  **person-days**. It's combined effort, not calendar time: 6 people with 68
+  working days left is ~405 person-days, but still finishes in 68 working days.
+  Also shown as task hours if your tasks carry Remaining Work.
+- **Charts**: velocity per sprint and a burn-up with the forecast running forward,
+  both starting the sprint before the team first closed a story; and stories,
+  bugs and tasks broken down by state (New, Committed, Done... whatever your
+  process uses) with the share in each. Click a segment, or a count, to open
+  exactly those items as a query in Azure DevOps. The link carries the item ids,
+  so a segment of more than ~700 items opens the newest ones that fit.
+- **Per member**, most work done first: work done (completed PRs plus closed
+  stories, bugs and tasks), PRs split into completed / abandoned / active / draft,
+  open drafts, stories and points closed, average points per story, a velocity
   sparkline, open work and how many working days it would take them at their pace.
+
+The **People** tab shows the same per-person figures for everyone on the roster
+across every team and repo, most work done first, plus when each person was
+first and last active and how many days that spans. Since someone who joined
+last month can't match someone who's been around all year, two columns even it
+out: **pace** (work done per sprint while active) and **share while active**
+(their slice of all the work anyone finished between their first and last
+active days). Snoop only looks back `stats.monthsBack`, so a `*` on the first
+active date means they were already active when the window opened.
 
 The forecast assumes the backlog stops growing. New work pushes the date out, so
 re-run it often. `-SkipTeamStats` skips the whole pass.
-
 ### Pointing it at a different repo
 
-Edit `organization`, `project` and `repositories` in the config — or just override
-them for one run:
+Edit `organization`, `project` and the `teams` in the config — or just override
+them for one run (`-Repository` sets the repos on the Activity tab for that run):
 
 ```powershell
 .\Snoop.ps1 -Organization contoso -Project Apollo -Repository web,api
