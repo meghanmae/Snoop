@@ -35,9 +35,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            organization: "contoso".into(),
-            project: "Apollo".into(),
-            repositories: vec!["Apollo".into()],
+            // Blank until the settings page fills them in.
+            organization: String::new(),
+            project: String::new(),
+            repositories: vec![],
             days_back: 14,
             people: vec![],
             aliases: IndexMap::new(),
@@ -137,30 +138,48 @@ pub struct Settings {
 /// --config wins; then snoop.config.json in the current directory; then next
 /// to the exe, where a starter file is written if there is none anywhere.
 pub fn locate(explicit: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(path) = explicit {
-        return Ok(path);
+    let path = match explicit {
+        Some(path) => path,
+        None if Path::new("snoop.config.json").exists() => PathBuf::from("snoop.config.json"),
+        None => std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("snoop.config.json"),
+    };
+    if !path.exists() {
+        write(&path, &Config::default()).context("could not write a starter config")?;
+        println!("Created starter config: {}", path.display());
     }
-    let here = PathBuf::from("snoop.config.json");
-    if here.exists() {
-        return Ok(here);
+    Ok(path)
+}
+
+pub fn read(path: &Path) -> Result<Config> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("could not read {}", path.display()))?;
+    serde_json::from_str(text.trim_start_matches('\u{feff}')).with_context(|| format!("could not parse {}", path.display()))
+}
+
+pub fn write(path: &Path, config: &Config) -> Result<()> {
+    std::fs::write(path, serde_json::to_string_pretty(config)?).with_context(|| format!("could not write {}", path.display()))
+}
+
+impl Config {
+    /// What still has to be filled in before a fetch can work, if anything.
+    pub fn missing(&self) -> Option<&'static str> {
+        if self.organization.trim().is_empty() {
+            Some("an organization")
+        } else if self.project.trim().is_empty() {
+            Some("a project")
+        } else if self.repositories.iter().all(|r| r.trim().is_empty()) {
+            Some("at least one repository")
+        } else {
+            None
+        }
     }
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."));
-    let beside = exe_dir.join("snoop.config.json");
-    if !beside.exists() {
-        std::fs::write(&beside, serde_json::to_string_pretty(&Config::default())?)
-            .with_context(|| format!("could not write a starter config to {}", beside.display()))?;
-        println!("Created starter config: {}", beside.display());
-    }
-    Ok(beside)
 }
 
 pub fn load(path: &Path) -> Result<Settings> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("could not read {}", path.display()))?;
-    let config: Config = serde_json::from_str(text.trim_start_matches('\u{feff}'))
-        .with_context(|| format!("could not parse {}", path.display()))?;
+    let config = read(path)?;
 
     let work_item_org = if config.work_items.organization.is_empty() {
         config.organization.clone()

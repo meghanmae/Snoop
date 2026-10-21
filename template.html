@@ -81,6 +81,8 @@
   .refresh button:disabled { color: var(--dim); cursor: default; }
   .refresh .status { margin-top: 6px; font-size: 11px; color: var(--dimmer); line-height: 1.5; }
   .refresh .status.error { color: var(--comment); white-space: pre-wrap; word-break: break-word; }
+  .refresh .settings-link { display: inline-block; margin-top: 8px; color: #9ec5e0; font-size: 12px; text-decoration: none; }
+  .refresh .settings-link:hover { text-decoration: underline; }
 
   .group { margin-bottom: 22px; }
   .group > h4 {
@@ -321,6 +323,7 @@
     <div class="refresh" id="refreshBox" hidden>
       <button type="button" id="refreshBtn">Refresh</button>
       <div class="status" id="refreshStatus"></div>
+      <a class="settings-link" href="/settings">Settings</a>
     </div>
 
     <div id="teamControls" hidden>

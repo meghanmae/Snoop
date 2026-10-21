@@ -22,26 +22,29 @@ Run it, look at it, close it.
 .\snoop.exe
 ```
 
-It reads `snoop.config.json` (from the current folder, else next to the exe -
-a starter one is written there on first run), opens the dashboard in your
-browser and fetches. Press **Refresh** in the sidebar to fetch again; it
-re-reads the config too, so edit it and refresh rather than restarting. Close
-the console window to stop it.
+The first run opens a **Settings** page in your browser: sign in, pick the
+organization, project and repositories (Snoop suggests them from Azure DevOps),
+and save. After that it opens straight to the dashboard.
 
-Requests run side by side, so a refresh takes seconds rather than minutes.
-Two extra settings control the exe:
+- **Refresh** in the sidebar fetches again. Requests run side by side, so a
+  refresh takes seconds rather than minutes.
+- **Settings** (under Refresh) edits everything in `snoop.config.json` - teams,
+  people, aliases, forecast options. Saving refreshes.
+- Close the console window to stop it.
 
-| Setting | |
-|---|---|
-| `maxConcurrentRequests` | Requests in flight at once (default 12). Lower it if ADO starts throttling. |
-| `port` | Local port for the dashboard (default 7414; any free port if taken) |
+**Signing in.** Settings has a **Sign in with Azure CLI** button, which runs
+`az login` for you. If the org is in a tenant the CLI can't reach, paste a
+personal access token instead (read access to Code and Work Items); it's kept
+in Windows Credential Manager, never in the config file. Order of preference:
+the `ADO_PAT` environment variable, then a saved token, then `az login`.
+
+The settings file is `snoop.config.json` in the current folder, else next to
+the exe. To keep several:
 
 ```powershell
 .\snoop.exe --config .\client.config.json   # another config
 .\snoop.exe --port 8080 --no-open           # different port, no browser
 ```
-
-Auth is the same as the script: `ADO_PAT` if set, otherwise `az login`.
 
 ### Building it
 
@@ -401,6 +404,7 @@ The banner at the top tells you if Snoop ignored your roster, and why.
 | File | |
 |---|---|
 | `src/`, `Cargo.toml` | snoop.exe — the same fetch, match and render, in parallel, behind a local server |
+| `settings.html` | the exe's settings page (built into the exe) |
 | `Snoop.ps1` | the original script — fetch, match, render |
 | `snoop.config.json` | your settings, created on first run |
 | `snoop.config.example.json` | a blank config to copy from |

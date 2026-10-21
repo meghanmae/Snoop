@@ -1,17 +1,19 @@
 [package]
 name = "snoop"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 publish = false
 description = "Local Azure DevOps activity and team-forecast dashboard"
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 indexmap = { version = "2", features = ["serde"] }
+# A saved PAT lives in Windows Credential Manager, never in the config file.
+keyring = { version = "3", features = ["windows-native"] }
 # SChannel on Windows: no C toolchain needed to build.
 reqwest = { version = "0.12", default-features = false, features = ["native-tls", "gzip", "json", "http2"] }
 serde = { version = "1", features = ["derive"] }

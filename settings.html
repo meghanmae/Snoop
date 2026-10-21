@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snoop - Settings</title>
+<style>
+  :root {
+    --bg:      #0b0d10;
+    --panel:   #111418;
+    --panel-2: #161a1f;
+    --line:    #222a32;
+    --text:    #c7d2de;
+    --dim:     #7a8794;
+    --dimmer:  #4d5964;
+    --accent:  #3987e5;
+    --error:   #fc8181;
+    --good:    #4ade80;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+
+  .page { max-width: 880px; margin: 0 auto; padding: 28px 22px 120px; }
+
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  .brand { font-size: 15px; font-weight: 600; letter-spacing: .12em; color: #e6edf5; }
+  header h1 { margin: 0; font-size: 15px; font-weight: 500; color: var(--dim); }
+  header a { margin-left: auto; color: #9ec5e0; text-decoration: none; font-size: 12.5px; }
+  header a:hover { text-decoration: underline; }
+  .path { color: var(--dimmer); font-size: 11px; margin-bottom: 22px; word-break: break-all; }
+
+  .welcome {
+    background: #12202c;
+    border: 1px solid #1f3a4d;
+    border-radius: 6px;
+    color: #9ec5e0;
+    padding: 12px 16px;
+    margin-bottom: 18px;
+  }
+  .welcome b { color: #d3e8f7; }
+
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 16px 18px 6px;
+    margin-bottom: 14px;
+  }
+  section > h2 { margin: 0 0 2px; font-size: 13px; font-weight: 600; color: #e6edf5; }
+  section > p.lead { margin: 0 0 14px; color: var(--dimmer); font-size: 11.5px; }
+
+  .field { margin-bottom: 14px; }
+  .field > label, .field > .label { display: block; font-size: 11.5px; color: var(--dim); margin-bottom: 5px; }
+  .field .hint { font-size: 11px; color: var(--dimmer); margin-top: 4px; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 14px; }
+  .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .inline > input { flex: 1; min-width: 180px; }
+
+  input[type=text], input[type=number], input[type=date], input[type=password] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid #2a333d;
+    border-radius: 4px;
+    color: #e6edf5;
+    font: inherit;
+    padding: 6px 8px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); margin: 0; }
+  label.check { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 12.5px; cursor: pointer; margin-bottom: 14px; }
+
+  button {
+    background: var(--panel-2);
+    border: 1px solid #2e3843;
+    border-radius: 4px;
+    color: #e6edf5;
+    font: inherit;
+    font-size: 12.5px;
+    padding: 6px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { color: var(--dim); cursor: default; }
+  button.primary { background: #1d4f8a; border-color: var(--accent); }
+  button.link { background: none; border: 0; color: #9ec5e0; padding: 0; }
+  button.link:hover { text-decoration: underline; }
+  button.danger:hover:not(:disabled) { border-color: var(--error); color: var(--error); }
+
+  /* chip lists */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+    min-height: 34px;
+    padding: 4px 5px;
+    background: var(--bg);
+    border: 1px solid #2a333d;
+    border-radius: 4px;
+    cursor: text;
+  }
+  .chips:focus-within { border-color: var(--accent); }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px 2px 9px;
+    background: var(--panel-2);
+    border: 1px solid #2e3843;
+    border-radius: 12px;
+    color: #dbe5ef;
+    font-size: 12px;
+  }
+  .chip button { border: 0; background: none; color: var(--dim); padding: 0 4px; font-size: 13px; line-height: 1; }
+  .chip button:hover { color: var(--error); }
+  .chips input { flex: 1; min-width: 160px; border: 0 !important; background: none !important; padding: 3px 4px !important; }
+
+  /* sign-in */
+  .auth { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dimmer); flex: 0 0 8px; }
+  .dot.ok { background: var(--good); }
+  .dot.bad { background: var(--error); }
+  #authDetail { color: #dbe5ef; }
+  .pat { margin-bottom: 14px; }
+
+  .msg { font-size: 12px; margin-top: 6px; white-space: pre-wrap; }
+  .msg.ok { color: var(--good); }
+  .msg.error { color: var(--error); }
+  .msg.busy { color: var(--dim); }
+
+  /* teams */
+  .team { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px 2px; margin-bottom: 10px; background: var(--bg); }
+  .team-head { display: flex; gap: 8px; margin-bottom: 12px; }
+  .team-head input { font-weight: 600; }
+
+  .alias { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .alias span { color: var(--dimmer); }
+
+  .savebar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    padding: 12px 22px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: rgba(17, 20, 24, .96);
+    border-top: 1px solid var(--line);
+  }
+  .savebar .inner { max-width: 836px; margin: 0 auto; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .savebar .msg { margin: 0; flex: 1; min-width: 200px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <span class="brand">SNOOP</span>
+    <h1>Settings</h1>
+    <a href="/" id="backLink">Back to the dashboard</a>
+  </header>
+  <div class="path" id="configPath"></div>
+
+  <div class="welcome" id="welcome" hidden>
+    <b>Welcome.</b> Sign in, then pick the organization, project and repositories to watch.
+    Everything else has sensible defaults and can wait.
+  </div>
+
+  <section>
+    <h2>Azure DevOps</h2>
+    <p class="lead">Snoop only reads from Azure DevOps. It never changes anything.</p>
+
+    <div class="auth">
+      <span class="dot" id="authDot"></span>
+      <span id="authDetail">Checking sign-in...</span>
+    </div>
+    <div class="inline" style="margin-bottom: 12px">
+      <button type="button" id="azLogin">Sign in with Azure CLI</button>
+      <button type="button" class="link" id="patToggle">Use a personal access token instead</button>
+    </div>
+    <div class="pat" id="patBox" hidden>
+      <div class="inline">
+        <input type="password" id="patInput" placeholder="Paste a token with read access to Code and Work Items" autocomplete="off">
+        <button type="button" id="patSave">Save token</button>
+        <button type="button" class="danger" id="patRemove" hidden>Remove saved token</button>
+      </div>
+      <div class="hint">Stored in Windows Credential Manager, not in the config file. A saved token is used instead of the Azure CLI.</div>
+    </div>
+    <div class="msg" id="authMsg"></div>
+
+    <div class="field" style="margin-top: 10px">
+      <label for="organization">Organization</label>
+      <div class="inline">
+        <input type="text" id="organization" placeholder="the part after dev.azure.com/">
+        <button type="button" id="testConnection">Test connection</button>
+      </div>
+      <div class="msg" id="connMsg"></div>
+    </div>
+    <div class="field">
+      <label for="project">Project</label>
+      <input type="text" id="project" list="projectList" placeholder="Project name">
+      <datalist id="projectList"></datalist>
+    </div>
+    <div class="field">
+      <div class="label">Repositories</div>
+      <div id="repositories"></div>
+      <div class="hint">All of them are charted together on the Activity tab.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Work items</h2>
+    <p class="lead">Where the tickets live, if not in the project above.</p>
+    <div class="row">
+      <div class="field">
+        <label for="wiOrganization">Organization</label>
+        <input type="text" id="wiOrganization" placeholder="same as above">
+      </div>
+    </div>
+    <div class="field">
+      <div class="label">Projects</div>
+      <div id="wiProjects"></div>
+      <div class="hint">Empty means the project above.</div>
+    </div>
+    <div class="field">
+      <div class="label">Area paths</div>
+      <div id="wiAreaPaths"></div>
+      <div class="hint">Optional. Only count tickets under these - worth it on a big shared project.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>People</h2>
+    <p class="lead">Who gets a row. Leave it empty to show the most active people Snoop finds.</p>
+    <div class="field">
+      <div id="people"></div>
+      <div class="hint">Names are matched loosely: "Alvarez, Robin" also finds "Robin Alvarez" and robin.alvarez@...</div>
+    </div>
+    <div class="field">
+      <div class="label">Aliases</div>
+      <div id="aliases"></div>
+      <button type="button" class="link" id="addAlias">+ Add an alias</button>
+      <div class="hint">For a git name or email that looks nothing like the person's real name.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Teams</h2>
+    <p class="lead">
+      A team is a set of repos. Its backlog is the stories titled with one of its prefixes or under its
+      area paths; with neither, it's whatever the members are assigned. Members default to whoever has PRs in the repos.
+    </p>
+    <div id="teams"></div>
+    <button type="button" id="addTeam" style="margin-bottom: 14px">+ Add a team</button>
+  </section>
+
+  <section>
+    <h2>Activity window</h2>
+    <div class="row">
+      <div class="field">
+        <label for="daysBack">Days to show</label>
+        <input type="number" id="daysBack" min="1" max="365">
+      </div>
+      <div class="field">
+        <label for="prLookbackDays">PR comment lookback (days)</label>
+        <input type="number" id="prLookbackDays" min="0">
+      </div>
+      <div class="field">
+        <label for="maxBranches">Max branches per repo</label>
+        <input type="number" id="maxBranches" min="0">
+      </div>
+      <div class="field">
+        <label for="maxDiscoveredPeople">Max people when discovering</label>
+        <input type="number" id="maxDiscoveredPeople" min="1">
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="includeAllBranches"> Scan feature branches too, not just the default branch</label>
+    <label class="check"><input type="checkbox" id="includeWeekends"> Keep empty weekend columns</label>
+  </section>
+
+  <section>
+    <h2>Forecasts</h2>
+    <p class="lead">For the Teams tab.</p>
+    <div class="row">
+      <div class="field">
+        <label for="monthsBack">History (months)</label>
+        <input type="number" id="monthsBack" min="1" max="36">
+      </div>
+      <div class="field">
+        <label for="sprintLengthDays">Sprint length (days)</label>
+        <input type="number" id="sprintLengthDays" min="1">
+      </div>
+      <div class="field">
+        <label for="sprintAnchorDate">A sprint's first day</label>
+        <input type="date" id="sprintAnchorDate">
+      </div>
+      <div class="field">
+        <label for="velocitySprints">Sprints to average</label>
+        <input type="number" id="velocitySprints" min="1">
+      </div>
+      <div class="field">
+        <label for="hoursPerDevDay">Hours per dev-day</label>
+        <input type="number" id="hoursPerDevDay" min="1" step="0.5">
+      </div>
+    </div>
+    <div class="field">
+      <div class="label">Story types</div>
+      <div id="storyTypes"></div>
+      <div class="hint">Work item types that carry story points.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Advanced</h2>
+    <div class="row">
+      <div class="field">
+        <label for="maxConcurrentRequests">Requests at once</label>
+        <input type="number" id="maxConcurrentRequests" min="1" max="64">
+        <div class="hint">Lower it if Azure DevOps starts throttling.</div>
+      </div>
+      <div class="field">
+        <label for="port">Port</label>
+        <input type="number" id="port" min="1" max="65535">
+        <div class="hint">Takes effect next time Snoop starts.</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="savebar">
+  <div class="inner">
+    <button type="button" class="primary" id="save">Save and refresh</button>
+    <div class="msg" id="saveMsg"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function say(id, kind, text) {
+  const node = $(id);
+  node.className = 'msg ' + (kind || '');
+  node.textContent = text || '';
+}
+
+async function api(method, url, body) {
+  const response = await fetch(url, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(data.error || response.statusText);
+    err.auth = !!data.authError;
+    throw err;
+  }
+  return data;
+}
+
+/* Suggestions from Azure DevOps, filled in as the org and project become known. */
+const suggestions = { projects: [], repos: [], areas: [], people: [] };
+
+/* ---------- chip list ----------
+   One value per chip. Enter adds; pasting several lines adds each line.
+   Commas stay inside a value, since names are "Last, First". */
+let uid = 0;
+function chipList(values, suggest, placeholder) {
+  const list = [...(values || [])];
+  const box = el('div', 'chips');
+  const input = el('input');
+  input.type = 'text';
+  input.placeholder = placeholder || 'Type and press Enter';
+  const datalist = el('datalist');
+  datalist.id = 'chips' + (++uid);
+  input.setAttribute('list', datalist.id);
+
+  function fillSuggestions() {
+    datalist.innerHTML = '';
+    const taken = new Set(list.map(v => v.toLowerCase()));
+    for (const option of suggest ? suggest() : []) {
+      if (taken.has(option.toLowerCase())) continue;
+      const o = el('option');
+      o.value = option;
+      datalist.appendChild(o);
+    }
+  }
+
+  function draw() {
+    box.querySelectorAll('.chip').forEach(c => c.remove());
+    list.forEach((value, i) => {
+      const chip = el('span', 'chip', value);
+      const x = el('button', null, '×');
+      x.type = 'button';
+      x.title = 'Remove';
+      x.addEventListener('click', e => { e.stopPropagation(); list.splice(i, 1); draw(); fillSuggestions(); });
+      chip.appendChild(x);
+      box.insertBefore(chip, input);
+    });
+  }
+
+  function add(raw) {
+    for (const value of raw.split(/\r?\n/).map(v => v.trim()).filter(Boolean)) {
+      if (!list.some(v => v.toLowerCase() === value.toLowerCase())) list.push(value);
+    }
+    input.value = '';
+    draw();
+    fillSuggestions();
+  }
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); add(input.value); }
+    else if (e.key === 'Backspace' && !input.value && list.length) { list.pop(); draw(); fillSuggestions(); }
+  });
+  // Picking from the suggestion list, or leaving the box with something typed.
+  input.addEventListener('change', () => add(input.value));
+  input.addEventListener('paste', e => {
+    const text = e.clipboardData.getData('text');
+    if (/\n/.test(text)) { e.preventDefault(); add(text); }
+  });
+  input.addEventListener('focus', fillSuggestions);
+  box.addEventListener('click', () => input.focus());
+
+  box.append(input, datalist);
+  draw();
+  return { el: box, values: () => { if (input.value.trim()) add(input.value); return [...list]; } };
+}
+
+function mount(id, values, suggest, placeholder) {
+  const chips = chipList(values, suggest, placeholder);
+  $(id).appendChild(chips.el);
+  return chips;
+}
+
+/* ---------- sign-in ---------- */
+
+async function loadAuth() {
+  try {
+    const auth = await api('GET', '/api/auth');
+    $('authDetail').textContent = auth.detail;
+    $('authDot').className = 'dot ' + (auth.source === 'none' ? 'bad' : 'ok');
+    $('patRemove').hidden = auth.source !== 'saved';
+    $('azLogin').textContent = auth.source === 'az' ? 'Sign in as someone else' : 'Sign in with Azure CLI';
+    $('azLogin').hidden = auth.source !== 'none' && auth.source !== 'az';
+    if (auth.source === 'none' && auth.azInstalled === false) {
+      $('patBox').hidden = false;
+      $('azLogin').hidden = true;
+    }
+    return auth;
+  } catch (e) {
+    $('authDetail').textContent = 'Could not check sign-in: ' + e.message;
+    return null;
+  }
+}
+
+$('azLogin').addEventListener('click', async () => {
+  $('azLogin').disabled = true;
+  say('authMsg', 'busy', 'Finish signing in in the browser window that just opened...');
+  try {
+    await api('POST', '/api/auth/az-login');
+    say('authMsg', 'ok', 'Signed in.');
+    await loadAuth();
+    loadLookups(true);
+  } catch (e) {
+    say('authMsg', 'error', e.message);
+  }
+  $('azLogin').disabled = false;
+});
+
+$('patToggle').addEventListener('click', () => {
+  $('patBox').hidden = !$('patBox').hidden;
+  if (!$('patBox').hidden) $('patInput').focus();
+});
+
+$('patSave').addEventListener('click', async () => {
+  if (!$('patInput').value.trim()) { say('authMsg', 'error', 'Paste a token first.'); return; }
+  try {
+    await api('POST', '/api/auth/pat', { pat: $('patInput').value });
+    $('patInput').value = '';
+    say('authMsg', 'ok', 'Token saved.');
+    await loadAuth();
+    loadLookups(true);
+  } catch (e) {
+    say('authMsg', 'error', e.message);
+  }
+});
+
+$('patRemove').addEventListener('click', async () => {
+  try {
+    await api('POST', '/api/auth/pat', { pat: '' });
+    say('authMsg', 'ok', 'Saved token removed.');
+    await loadAuth();
+  } catch (e) {
+    say('authMsg', 'error', e.message);
+  }
+});
+
+/* ---------- lookups ---------- */
+
+let lookedUp = { org: null, project: null };
+
+async function loadLookups(force) {
+  const org = $('organization').value.trim();
+  const project = $('project').value.trim();
+  if (!org) return;
+
+  if (force || org !== lookedUp.org) {
+    lookedUp = { org, project: null };
+    say('connMsg', 'busy', 'Connecting...');
+    try {
+      suggestions.projects = await api('GET', `/api/lookup/projects?org=${encodeURIComponent(org)}`);
+      $('projectList').innerHTML = '';
+      for (const name of suggestions.projects) { const o = el('option'); o.value = name; $('projectList').appendChild(o); }
+      say('connMsg', 'ok', `Connected - ${suggestions.projects.length} project${suggestions.projects.length === 1 ? '' : 's'} visible.`);
+    } catch (e) {
+      lookedUp.org = null;
+      say('connMsg', 'error', e.message + (e.auth ? '\nSign in above, then test again.' : ''));
+      return;
+    }
+  }
+
+  if (project && (force || project !== lookedUp.project)) {
+    lookedUp.project = project;
+    const q = `org=${encodeURIComponent(org)}&project=${encodeURIComponent(project)}`;
+    const [repos, areas] = await Promise.allSettled([
+      api('GET', `/api/lookup/repos?${q}`),
+      api('GET', `/api/lookup/areas?${q}`)
+    ]);
+    suggestions.repos = repos.status === 'fulfilled' ? repos.value : [];
+    suggestions.areas = areas.status === 'fulfilled' ? areas.value : [];
+    if (repos.status === 'rejected') say('connMsg', 'error', `Couldn't list repositories in ${project}: ${repos.reason.message}`);
+  }
+}
+
+$('testConnection').addEventListener('click', () => loadLookups(true));
+$('organization').addEventListener('change', () => loadLookups(false));
+$('project').addEventListener('change', () => loadLookups(false));
+
+/* ---------- aliases and teams ---------- */
+
+function addAliasRow(from, to) {
+  const row = el('div', 'alias');
+  const a = el('input'); a.type = 'text'; a.placeholder = 'git name or email'; a.value = from || '';
+  const b = el('input'); b.type = 'text'; b.placeholder = 'roster name'; b.value = to || '';
+  b.setAttribute('list', 'peopleList');
+  const x = el('button', 'danger', 'Remove'); x.type = 'button';
+  x.addEventListener('click', () => row.remove());
+  row.append(a, el('span', null, '→'), b, x);
+  $('aliases').appendChild(row);
+}
+
+const peopleList = el('datalist');
+peopleList.id = 'peopleList';
+document.body.appendChild(peopleList);
+
+const teams = [];
+
+function addTeam(name, team) {
+  team = team || {};
+  const card = el('div', 'team');
+  const head = el('div', 'team-head');
+  const title = el('input'); title.type = 'text'; title.placeholder = 'Team name'; title.value = name || '';
+  const remove = el('button', 'danger', 'Remove team'); remove.type = 'button';
+  head.append(title, remove);
+  card.appendChild(head);
+
+  const field = (label, chips, hint) => {
+    const f = el('div', 'field');
+    f.appendChild(el('div', 'label', label));
+    f.appendChild(chips.el);
+    if (hint) f.appendChild(el('div', 'hint', hint));
+    card.appendChild(f);
+    return chips;
+  };
+  const entry = {
+    card, title,
+    repos:    field('Repositories', chipList(team.repositories, () => suggestions.repos)),
+    prefixes: field('Story title prefixes', chipList(team.titlePrefixes, null, 'e.g. CG'),
+                    'Stories titled "CG - ...", "CG: ..." or "[CG] ..." belong to this team.'),
+    areas:    field('Area paths', chipList(team.areaPaths, () => suggestions.areas)),
+    members:  field('Members', chipList(team.members, () => peopleNow()),
+                    'Optional. Otherwise anyone with a PR in these repos.')
+  };
+  remove.addEventListener('click', () => { card.remove(); teams.splice(teams.indexOf(entry), 1); });
+  teams.push(entry);
+  $('teams').appendChild(card);
+  if (!name) title.focus();
+}
+
+/* A team written as a bare list of repos, or one repo, or the full object. */
+function normaliseTeam(team) {
+  if (Array.isArray(team)) return { repositories: team };
+  if (typeof team === 'string') return { repositories: [team] };
+  return team || {};
+}
+
+$('addAlias').addEventListener('click', () => addAliasRow());
+$('addTeam').addEventListener('click', () => addTeam());
+
+/* ---------- load and save ---------- */
+
+let chips = {};
+let original = {};
+
+function peopleNow() {
+  const set = new Map();
+  for (const name of [...(chips.people ? chips.people.values() : []), ...suggestions.people]) set.set(name.toLowerCase(), name);
+  return [...set.values()];
+}
+
+function setNumber(id, value) { $(id).value = value == null ? '' : value; }
+function number(id, fallback) {
+  const v = parseFloat($(id).value);
+  return isFinite(v) ? v : fallback;
+}
+
+async function load() {
+  const { path, config, missing } = await api('GET', '/api/config');
+  original = config;
+  $('configPath').textContent = path;
+  $('welcome').hidden = !missing;
+  $('backLink').hidden = !!missing;
+
+  $('organization').value = config.organization || '';
+  $('project').value = config.project || '';
+  $('wiOrganization').value = config.workItems.organization || '';
+
+  chips.repositories = mount('repositories', config.repositories, () => suggestions.repos, 'Type or pick a repository');
+  chips.wiProjects   = mount('wiProjects', config.workItems.projects, () => suggestions.projects);
+  chips.wiAreaPaths  = mount('wiAreaPaths', config.workItems.areaPaths, () => suggestions.areas);
+  chips.people       = mount('people', config.people, () => suggestions.people, 'Type a name and press Enter');
+  chips.storyTypes   = mount('storyTypes', config.stats.storyTypes, () => ['User Story', 'Product Backlog Item', 'Story', 'Requirement', 'Bug']);
+
+  for (const [from, to] of Object.entries(config.aliases || {})) addAliasRow(from, to);
+  for (const [name, team] of Object.entries(config.teams || {})) addTeam(name, normaliseTeam(team));
+
+  setNumber('daysBack', config.daysBack);
+  setNumber('prLookbackDays', config.prLookbackDays);
+  setNumber('maxBranches', config.maxBranches);
+  setNumber('maxDiscoveredPeople', config.maxDiscoveredPeople);
+  $('includeAllBranches').checked = !!config.includeAllBranches;
+  $('includeWeekends').checked = !!config.includeWeekends;
+
+  setNumber('monthsBack', config.stats.monthsBack);
+  setNumber('sprintLengthDays', config.stats.sprintLengthDays);
+  $('sprintAnchorDate').value = config.stats.sprintAnchorDate || '';
+  setNumber('velocitySprints', config.stats.velocitySprints);
+  setNumber('hoursPerDevDay', config.stats.hoursPerDevDay);
+  setNumber('maxConcurrentRequests', config.maxConcurrentRequests);
+  setNumber('port', config.port);
+
+  api('GET', '/api/lookup/people').then(names => {
+    suggestions.people = names;
+    for (const name of names) { const o = el('option'); o.value = name; peopleList.appendChild(o); }
+  }).catch(() => {});
+}
+
+function collect() {
+  const teamMap = {};
+  for (const team of teams) {
+    const name = team.title.value.trim();
+    if (!name) throw new Error('Every team needs a name.');
+    if (teamMap[name]) throw new Error(`Two teams are called "${name}".`);
+    teamMap[name] = {
+      repositories: team.repos.values(),
+      areaPaths: team.areas.values(),
+      titlePrefixes: team.prefixes.values(),
+      members: team.members.values()
+    };
+  }
+
+  const aliases = {};
+  for (const row of $('aliases').querySelectorAll('.alias')) {
+    const [from, to] = row.querySelectorAll('input');
+    if (from.value.trim() && to.value.trim()) aliases[from.value.trim()] = to.value.trim();
+  }
+
+  return {
+    ...original,
+    organization: $('organization').value.trim(),
+    project: $('project').value.trim(),
+    repositories: chips.repositories.values(),
+    daysBack: number('daysBack', 14),
+    people: chips.people.values(),
+    aliases,
+    workItems: {
+      organization: $('wiOrganization').value.trim(),
+      projects: chips.wiProjects.values(),
+      areaPaths: chips.wiAreaPaths.values()
+    },
+    maxDiscoveredPeople: number('maxDiscoveredPeople', 20),
+    prLookbackDays: number('prLookbackDays', 90),
+    includeAllBranches: $('includeAllBranches').checked,
+    maxBranches: number('maxBranches', 50),
+    includeWeekends: $('includeWeekends').checked,
+    teams: teamMap,
+    stats: {
+      monthsBack: number('monthsBack', 6),
+      sprintLengthDays: number('sprintLengthDays', 14),
+      sprintAnchorDate: $('sprintAnchorDate').value,
+      velocitySprints: number('velocitySprints', 6),
+      storyTypes: chips.storyTypes.values(),
+      hoursPerDevDay: number('hoursPerDevDay', 6)
+    },
+    maxConcurrentRequests: number('maxConcurrentRequests', 12),
+    port: number('port', 7414)
+  };
+}
+
+$('save').addEventListener('click', async () => {
+  let config;
+  try { config = collect(); }
+  catch (e) { say('saveMsg', 'error', e.message); return; }
+
+  $('save').disabled = true;
+  say('saveMsg', 'busy', 'Saving...');
+  try {
+    await api('PUT', '/api/config', config);
+    location.href = '/';
+  } catch (e) {
+    say('saveMsg', 'error', e.message);
+    $('save').disabled = false;
+  }
+});
+
+load()
+  .then(loadAuth)
+  .then(auth => { if (auth && auth.source !== 'none') loadLookups(false); })
+  .catch(e => say('saveMsg', 'error', 'Could not load the settings: ' + e.message));
+</script>
+</body>
+</html>
