@@ -128,10 +128,17 @@ pub struct StatsConfig {
     pub story_types: Vec<String>,
     /// Converts task Remaining Work hours into dev-days.
     pub hours_per_dev_day: f64,
+    /// The workflow, first to last, for ordering states on the dashboard.
+    /// A state not listed sits with others at the same stage.
+    pub state_order: Vec<String>,
+    /// States where the work has left the developers - Test, with QA, say.
+    /// Not counted as work left, and not done until it closes.
+    pub handed_off_states: Vec<String>,
 }
 
 impl Default for StatsConfig {
     fn default() -> Self {
+        let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect();
         Self {
             months_back: 6,
             sprint_length_days: 14,
@@ -139,6 +146,12 @@ impl Default for StatsConfig {
             velocity_sprints: 6,
             story_types: vec!["User Story".into(), "Product Backlog Item".into(), "Story".into()],
             hours_per_dev_day: 6.0,
+            state_order: names(&[
+                "New", "To Do", "Proposed", "Approved", "Committed", "Active", "In Progress", "Doing",
+                "PR Review", "Code Review", "In Review", "Resolved", "Test", "Testing", "QA", "In QA",
+                "Done", "Closed", "Completed",
+            ]),
+            handed_off_states: names(&["Test", "Testing", "QA", "In QA", "Resolved"]),
         }
     }
 }
@@ -293,6 +306,17 @@ mod tests {
         let config = parse(include_str!("../snoop.config.example.json"));
         assert_eq!(config.missing(), None);
         assert!(!config.repos().iter().any(|r| r == "Contoso.Web.Legacy"));
+    }
+
+    #[test]
+    fn workflow_defaults_fill_in_older_configs() {
+        let stats = parse(r#"{ "stats": { "monthsBack": 3 } }"#).stats;
+        assert_eq!(stats.months_back, 3);
+        let at = |name: &str| stats.state_order.iter().position(|s| s == name).unwrap();
+        let workflow = ["New", "To Do", "Approved", "Committed", "In Progress", "PR Review", "Test", "Done"];
+        assert!(workflow.windows(2).all(|w| at(w[0]) < at(w[1])));
+        assert!(stats.handed_off_states.iter().any(|s| s == "Test"));
+        assert!(!stats.handed_off_states.iter().any(|s| ["New", "To Do", "Approved", "Committed", "In Progress", "PR Review", "Done"].contains(&s.as_str())));
     }
 
     #[test]

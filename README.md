@@ -227,6 +227,8 @@ The Teams tab looks back much further than `daysBack`, set under `stats`:
 | `velocitySprints` | How many recent sprints the forecast averages (default 6; also switchable on the page) |
 | `storyTypes` | Work item types that carry points (default User Story / PBI / Story). Bugs, tasks, features and epics never count towards points, even if listed: bugs and tasks are tracked as their own kinds, and features and epics are left out. |
 | `hoursPerDevDay` | Converts task Remaining Work hours into dev-days (default 6) |
+| `stateOrder` | Work item states, first to last, for ordering the state chart. The default covers the usual names: New, To Do, Approved, Committed, In Progress, PR Review, Test, Done and the like. A state that isn't listed goes with the others at the same stage. |
+| `handedOffStates` | States where the developers are finished but the work isn't done, such as Test with QA (default Test, Testing, QA, In QA, Resolved). Stories in these states don't count as open work, so they stay out of the finish estimate. |
 
 Each team gets its own tab (with an **Overview** tab comparing them all when
 there's more than one). For each team it shows:
@@ -235,9 +237,12 @@ there's more than one). For each team it shows:
   and fast figure from the slower and faster halves of those sprints. Teams that
   don't point their stories get a story count instead. Sprints before the team
   first closed a story are left out of the average.
-- **Open work**: points on every story not Done or Removed (state categories come
-  from ADO, so Closed, Done, Cut etc. all work), split into not started, in
-  progress and resolved. Unpointed stories count at the team's average story size.
+- **Open work**: points on the stories still with the developers, split into not
+  started (New, To Do, Approved...) and in development (Committed, In Progress,
+  PR Review...). Stories in a `handedOffStates` state, such as Test, and done or
+  removed ones are left out; the tile says how many are with QA. State categories
+  come from ADO, so Closed, Done, Cut etc. all work. Unpointed stories count at
+  the team's average story size.
 - **Likely finish**: open work ÷ velocity, as working days from today and a date,
   with the slow–fast range.
 - **Effort left**: those working days × the people currently closing work, in
@@ -246,8 +251,9 @@ there's more than one). For each team it shows:
   Also shown as task hours if your tasks carry Remaining Work.
 - **Charts**: velocity per sprint and a burn-up with the forecast running forward,
   both starting the sprint before the team first closed a story; and stories,
-  bugs and tasks broken down by state (New, Committed, Done... whatever your
-  process uses) with the share in each. Click a segment, or a count, to open
+  bugs and tasks broken down by state in workflow order (New, To Do, Approved,
+  Committed, In Progress, PR Review, Test, Done... whatever your process uses)
+  with the share in each. Click a segment, or a count, to open
   exactly those items as a query in Azure DevOps. The link carries the item ids,
   so a segment of more than ~700 items opens the newest ones that fit.
 - **Per member**, most work done first: work done (completed PRs plus closed

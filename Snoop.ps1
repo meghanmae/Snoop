@@ -93,6 +93,12 @@ $DefaultConfig = [ordered]@{
         velocitySprints  = 6           # how many recent sprints the forecast averages
         storyTypes       = @('User Story', 'Product Backlog Item', 'Story')
         hoursPerDevDay   = 6           # converts task Remaining Work hours into dev-days
+        # The workflow, first to last, for ordering states on the dashboard.
+        stateOrder       = @('New', 'To Do', 'Proposed', 'Approved', 'Committed', 'Active', 'In Progress', 'Doing',
+                             'PR Review', 'Code Review', 'In Review', 'Resolved', 'Test', 'Testing', 'QA', 'In QA',
+                             'Done', 'Closed', 'Completed')
+        # Work out of the developers' hands (Test, with QA): not work left, not done either.
+        handedOffStates  = @('Test', 'Testing', 'QA', 'In QA', 'Resolved')
     }
 }
 
@@ -1085,6 +1091,8 @@ if (-not $SkipTeamStats) {
         anchor          = [string](Get-StatsSetting 'sprintAnchorDate')
         velocitySprints = [int](Get-StatsSetting 'velocitySprints')
         hoursPerDay     = [double](Get-StatsSetting 'hoursPerDevDay')
+        stateOrder      = @(Get-StatsSetting 'stateOrder')
+        handedOffStates = @(Get-StatsSetting 'handedOffStates')
         teams           = @($Teams | ForEach-Object {
             $team    = $_
             # null tells the page to work the members out from who has PRs in the repos.

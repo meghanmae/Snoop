@@ -78,6 +78,8 @@ struct App {
     page: RwLock<Option<String>>,
     /// Names seen in the last fetch, to suggest on the settings page.
     names: RwLock<Vec<String>>,
+    /// Work item states seen in the last fetch, in ADO's order.
+    states: RwLock<Vec<String>>,
     status: Mutex<Status>,
     requests: Arc<AtomicUsize>,
 }
@@ -160,6 +162,12 @@ async fn run_refresh(app: &App) -> Result<String> {
         }
     }
     *app.names.write().await = names.into_iter().collect();
+    *app.states.write().await = payload["stats"]["states"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| s["n"].as_str().map(str::to_string))
+        .collect();
 
     // Keep a stray "</script>" inside a commit message from ending the script
     // block. "<" is a valid escape inside a JSON string.
@@ -366,6 +374,10 @@ async fn lookup_people(State(app): State<Arc<App>>) -> Json<Value> {
     Json(json!(*app.names.read().await))
 }
 
+async fn lookup_states(State(app): State<Arc<App>>) -> Json<Value> {
+    Json(json!(*app.states.read().await))
+}
+
 // --- startup --------------------------------------------------------------------
 
 fn open_browser(url: &str) {
@@ -397,6 +409,7 @@ async fn run() -> Result<()> {
         config_path: config_path.clone(),
         page: RwLock::new(None),
         names: RwLock::new(vec![]),
+        states: RwLock::new(vec![]),
         status: Mutex::new(Status::default()),
         requests: Arc::new(AtomicUsize::new(0)),
     });
@@ -431,6 +444,7 @@ async fn run() -> Result<()> {
         .route("/api/lookup/repos", get(lookup_repos))
         .route("/api/lookup/areas", get(lookup_areas))
         .route("/api/lookup/people", get(lookup_people))
+        .route("/api/lookup/states", get(lookup_states))
         .with_state(app);
     axum::serve(listener, router).await?;
     Ok(())

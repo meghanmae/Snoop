@@ -364,6 +364,8 @@ pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
         "anchor": st.sprint_anchor_date,
         "velocitySprints": st.velocity_sprints,
         "hoursPerDay": st.hours_per_dev_day,
+        "stateOrder": st.state_order,
+        "handedOffStates": st.handed_off_states,
         "teams": teams,
         "prs": prs,
         "items": items,

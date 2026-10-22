@@ -887,31 +887,57 @@ const KINDS = [
   { key: 'task',  label: 'Tasks' }
 ];
 
-/* Every state, in workflow order: category first, then the order ADO lists
-   them in. Colours come in a family per category, so "not started", "in
-   flight" and "done" read at a glance, and a state keeps its colour everywhere. */
-const CATEGORY_RANK = { Proposed: 0, InProgress: 1, Resolved: 2, Completed: 3 };
-const STATE_FAMILIES = {
-  Proposed:   ['#8a97a6', '#5b6b7c', '#b4bfcb'],
-  InProgress: ['#3987e5', '#a78bfa', '#c98500', '#d95926', '#5bc0eb', '#e879b9'],
-  Resolved:   ['#2bb3a3', '#7ad3c8'],
-  Completed:  ['#4ade80', '#199e70', '#9be7b4']
+/* Where a work item stands. "handoff" is work out of the developers' hands -
+   in Test with QA, say (stats.handedOffStates). It isn't work left, so it stays
+   out of the estimates, and it isn't done until it closes. */
+const HANDED_OFF = new Set(((STATS && STATS.handedOffStates) || []).map(s => s.toLowerCase()));
+const PHASE_RANK = { notStarted: 0, dev: 1, handoff: 2, done: 3 };
+function phaseOf(item) {
+  if (item.g === 'Completed') return 'done';
+  if (HANDED_OFF.has((item.s || '').toLowerCase())) return 'handoff';
+  if (item.g === 'Proposed') return 'notStarted';
+  return 'dev';
+}
+const isWorkLeft = item => PHASE_RANK[phaseOf(item)] < PHASE_RANK.handoff;
+const handedOffNames = items => [...new Set(items.map(i => i.s))].join(' / ');
+const devStateNames = (items = STATS.items) => STATES
+  .filter(s => (s.phase === 'notStarted' || s.phase === 'dev') && items.some(i => i.s === s.name))
+  .map(s => s.name).join(', ');
+
+/* Every state, in workflow order (stats.stateOrder). A state that isn't listed
+   goes after the last listed one at the same stage. Colours come in a family
+   per phase, so "not started", "in development", "with QA" and "done" read at
+   a glance, and a state keeps its colour everywhere. */
+const PHASE_FAMILIES = {
+  notStarted: ['#8a97a6', '#b4bfcb', '#5b6b7c'],
+  dev:        ['#3987e5', '#5bc0eb', '#a78bfa', '#d95926', '#e879b9'],
+  handoff:    ['#c98500', '#2bb3a3', '#7ad3c8'],
+  done:       ['#4ade80', '#199e70', '#9be7b4']
 };
 const STATES = (() => {
   if (!STATS) return [];
-  const known = (STATS.states || []).map(s => s.n.toLowerCase());
+  const adoOrder = (STATS.states || []).map(s => s.n.toLowerCase());
+  const workflow = (STATS.stateOrder || []).map(s => s.toLowerCase());
   const seen = new Map();
   for (const item of STATS.items) {
     if (seen.has(item.s)) continue;
-    const pos = known.indexOf((item.s || '').toLowerCase());
-    seen.set(item.s, { name: item.s, g: item.g, pos: pos < 0 ? 999 : pos });
+    const name = (item.s || '').toLowerCase();
+    const pos = adoOrder.indexOf(name);
+    seen.set(item.s, { name: item.s, g: item.g, phase: phaseOf(item), at: workflow.indexOf(name), pos: pos < 0 ? 999 : pos });
   }
-  const list = [...seen.values()].sort((a, b) =>
-    (CATEGORY_RANK[a.g] ?? 1) - (CATEGORY_RANK[b.g] ?? 1) || a.pos - b.pos || a.name.localeCompare(b.name));
+  const rank = s => PHASE_RANK[s.phase];
+  const list = [...seen.values()].filter(s => s.at >= 0).sort((a, b) => a.at - b.at);
+  const unlisted = [...seen.values()].filter(s => s.at < 0)
+    .sort((a, b) => rank(a) - rank(b) || a.pos - b.pos || a.name.localeCompare(b.name));
+  for (const state of unlisted) {
+    let after = -1;
+    list.forEach((s, i) => { if (rank(s) <= rank(state)) after = i; });
+    list.splice(after + 1, 0, state);
+  }
   const used = {};
   for (const state of list) {
-    const family = STATE_FAMILIES[state.g] || STATE_FAMILIES.InProgress;
-    const n = used[state.g] = (used[state.g] || 0) + 1;
+    const family = PHASE_FAMILIES[state.phase];
+    const n = used[state.phase] = (used[state.phase] || 0) + 1;
     state.color = family[(n - 1) % family.length];
   }
   return list;
@@ -995,15 +1021,15 @@ function teamModel(team) {
   const people    = personRows(memberIds, scope, recent);
 
   return {
-    team, unit, avgSize, prs, items, people, done, open, velocity, recent, remaining,
+    team, unit, avgSize, openValue, prs, items, people, done, open, velocity, recent, remaining,
     // The charts start a sprint before the team first closed anything.
     chartFrom:     Math.max(0, first - 1),
     forecast:      fc,
     closedCount:   scope.closedCount,
     contributors:  people.filter(p => p.velocity > 0).length,
     openUnpointed: open.filter(i => i.pts == null).length,
-    byCategory:    Object.fromEntries(['Proposed', 'InProgress', 'Resolved']
-                     .map(g => [g, sum(open.filter(i => i.g === g), openValue)])),
+    byPhase:       Object.fromEntries(['notStarted', 'dev'].map(p => [p, sum(open.filter(i => phaseOf(i) === p), openValue)])),
+    handedOff:     scope.handedOff,
     taskHours:     sum(scope.openTasks, t => t.rem)
   };
 }
@@ -1011,9 +1037,11 @@ function teamModel(team) {
 /* What a set of PRs and work items adds up to. Only stories count towards
    velocity: bugs and tasks are counted as work done, never as points. */
 function workScope(prs, items) {
-  const stories = items.filter(i => i.k === 'story');
-  const done    = stories.filter(i => i.g === 'Completed');
-  const open    = stories.filter(i => i.g !== 'Completed');
+  const stories   = items.filter(i => i.k === 'story');
+  const done      = stories.filter(i => phaseOf(i) === 'done');
+  // Open work is what's left for the developers: not started or in development.
+  const open      = stories.filter(isWorkLeft);
+  const handedOff = stories.filter(i => phaseOf(i) === 'handoff');
 
   // Points when the work is pointed, a plain story count when it isn't.
   // Open stories with no points count at the average story size.
@@ -1025,12 +1053,12 @@ function workScope(prs, items) {
   const bySprint  = list => SPRINTS.map((s, idx) => sum(list.filter(i => i.si === idx), doneValue));
 
   return {
-    prs, items, stories, done, open, unit, avgSize, openValue, bySprint,
+    prs, items, stories, done, open, handedOff, unit, avgSize, openValue, bySprint,
     velocity:    bySprint(done),
     closedCount: SPRINTS.map((s, idx) => done.filter(i => i.si === idx).length),
-    closedBugs:  items.filter(i => i.k === 'bug' && i.g === 'Completed'),
-    closedTasks: items.filter(i => i.k === 'task' && i.g === 'Completed'),
-    openTasks:   items.filter(i => i.k === 'task' && i.g !== 'Completed' && i.rem != null)
+    closedBugs:  items.filter(i => i.k === 'bug' && phaseOf(i) === 'done'),
+    closedTasks: items.filter(i => i.k === 'task' && phaseOf(i) === 'done'),
+    openTasks:   items.filter(i => i.k === 'task' && isWorkLeft(i) && i.rem != null)
   };
 }
 
@@ -1254,7 +1282,7 @@ function burnupChart(model) {
   const hits = rate => rate > 0 ? now + (scope - doneNow) / rate * len : Infinity;
 
   const box = chartBox(`Burn-up and forecast (${model.unit})`,
-    'Scope is what is closed plus what is open today - work added later will push the finish out.',
+    'Scope is what is closed plus the work left today (not stories with QA) - work added later will push the finish out.',
     [
       { label: 'Closed', color: 'var(--series)', line: true },
       { label: 'Forecast at average velocity', color: 'var(--series)', line: true, opacity: 0.5 },
@@ -1466,9 +1494,12 @@ function renderTeamSection(model, index) {
 
   const unpointed = unit === 'pts' && model.openUnpointed
     ? `\n${model.openUnpointed} unpointed, counted at ~${fmt(model.avgSize)} pts each` : '';
+  const qa = model.handedOff.length
+    ? `\nNot counted: ${plural(model.handedOff.length, 'story')} (${fmt(sum(model.handedOff, model.openValue))} ${unit}) ` +
+      `in ${handedOffNames(model.handedOff)}, with QA` : '';
   tiles.appendChild(tile('Open work', fmt(model.remaining), unit,
-    `${plural(model.open.length, 'story')}: ${fmt(model.byCategory.Proposed)} not started, ` +
-    `${fmt(model.byCategory.InProgress)} in progress, ${fmt(model.byCategory.Resolved)} resolved${unpointed}`));
+    `${plural(model.open.length, 'story')}: ${fmt(model.byPhase.notStarted)} not started, ` +
+    `${fmt(model.byPhase.dev)} in development${unpointed}${qa}`));
 
   const finish = finishText(fc);
   tiles.appendChild(tile('Likely finish', finish.value, '', finish.sub, true));
@@ -1495,7 +1526,8 @@ function renderTeamSection(model, index) {
   charts.appendChild(velocityChart(model));
   charts.appendChild(burnupChart(model));
   charts.appendChild(breakdownChart(model.items,
-    `Everything in this team's backlog: open now, plus closed since ${longDay(toDate(STATS.from))}. Hover a segment for its count.`));
+    `Everything in this team's backlog: open now, plus closed since ${longDay(toDate(STATS.from))}, in workflow order. ` +
+    `Only ${devStateNames() || 'not-started and in-development states'} count as work left. Hover a segment for its count.`));
   section.appendChild(charts);
 
   section.appendChild(el('h3', null, 'MEMBERS - MOST WORK DONE FIRST'));
@@ -1507,6 +1539,8 @@ function renderTeamSection(model, index) {
     `<b>How this is worked out.</b> Velocity is ${unit === 'pts' ? 'story points' : 'stories (nothing here is pointed)'} ` +
     `closed per ${STATS.sprintDays}-day sprint, averaged over the last ${plural(k, 'sprint')} since the team first closed a story; ` +
     `the range uses the slower and faster halves of those sprints. Only stories count - bugs, tasks and features never add points. ` +
+    `Open work is the stories still with the developers - not started or in development (${devStateNames()}); ` +
+    `stories in ${(STATS.handedOffStates || []).join(' / ') || 'a handed-off state'} are with QA and aren't counted, nor are done ones. ` +
     `Open work divided by velocity gives the sprints left, and so the likely finish. ` +
     `Effort left multiplies those working days by the people currently closing work: it is combined effort in person-days, ` +
     `not how long it will take. A person's "days to clear" is their own open work at their own pace. ` +
