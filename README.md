@@ -229,13 +229,15 @@ The Teams tab looks back much further than `daysBack`, set under `stats`:
 | `hoursPerDevDay` | Converts task Remaining Work hours into dev-days (default 6) |
 | `stateOrder` | Work item states, first to last, for ordering the state chart. The default covers the usual names: New, To Do, Approved, Committed, In Progress, PR Review, Test, Done and the like. A state that isn't listed goes with the others at the same stage. |
 | `handedOffStates` | States where the developers are finished but the work isn't done, such as Test with QA (default Test, Testing, QA, In QA, Resolved). Stories in these states don't count as open work, so they stay out of the finish estimate. |
+| `reviewStates` | States where work waits on a PR review (default PR Review, PR, Code Review, In Review). Reaching one stops the "active to PR" clock. |
 
 Each team gets its own tab (with an **Overview** tab comparing them all when
 there's more than one). For each team it shows:
 
 - **Velocity**: story points closed per sprint, averaged over recent sprints, with a slow
   and fast figure from the slower and faster halves of those sprints. Teams that
-  don't point their stories get a story count instead. Sprints before the team
+  don't point their stories get a story count instead; a story without points,
+  closed or open, counts at the team's average story size. Sprints before the team
   first closed a story are left out of the average.
 - **Open work**: points on the stories still with the developers, split into not
   started (New, To Do, Approved...) and in development (Committed, In Progress,
@@ -249,6 +251,12 @@ there's more than one). For each team it shows:
   **person-days**. It's combined effort, not calendar time: 6 people with 68
   working days left is ~405 person-days, but still finishes in 68 working days.
   Also shown as task hours if your tasks carry Remaining Work.
+- **Active to PR**: the average time from a story or bug first going into
+  development (Committed, In Progress...) to first reaching a `reviewStates`
+  state such as PR Review, with the median alongside. Tasks aren't timed.
+- **Time to merge**: the average time from a PR being opened to being completed,
+  draft time included, with the median alongside.
+  Both leave weekends out, and only count what finished inside the stats window.
 - **Charts**: velocity per sprint and a burn-up with the forecast running forward,
   both starting the sprint before the team first closed a story; and stories,
   bugs and tasks broken down by state in workflow order (New, To Do, Approved,
@@ -258,7 +266,8 @@ there's more than one). For each team it shows:
   so a segment of more than ~700 items opens the newest ones that fit.
 - **Per member**, most work done first: work done (completed PRs plus closed
   stories, bugs and tasks), PRs split into completed / abandoned / active / draft,
-  open drafts, stories and points closed, average points per story, a velocity
+  open drafts, time to merge (by author), active to PR (by whoever had the item
+  when it reached review), stories and points closed, average points per story, a velocity
   sparkline, open work and how many working days it would take them at their pace.
 
 The **People** tab shows the same per-person figures for everyone on the roster

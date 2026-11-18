@@ -99,6 +99,8 @@ $DefaultConfig = [ordered]@{
                              'Done', 'Closed', 'Completed')
         # Work out of the developers' hands (Test, with QA): not work left, not done either.
         handedOffStates  = @('Test', 'Testing', 'QA', 'In QA', 'Resolved')
+        # Reaching one of these stops the "active to PR" clock.
+        reviewStates     = @('PR Review', 'PR', 'Code Review', 'In Review')
     }
 }
 
@@ -951,12 +953,16 @@ if (-not $SkipTeamStats) {
         $status = $pr.status
         if ($status -eq 'active' -and $pr.isDraft) { $status = 'draft' }
         $closed = ConvertTo-Local $pr.closedDate
+        $opened = ConvertTo-Local $pr.creationDate
         [ordered]@{
             p = $person
             r = $entry.Repo
             s = $status            # active | draft | completed | abandoned
-            c = (ConvertTo-Local $pr.creationDate).ToString('yyyy-MM-dd')
+            c = $opened.ToString('yyyy-MM-dd')
             x = $(if ($closed) { $closed.ToString('yyyy-MM-dd') } else { '' })
+            # To the minute, for time to merge.
+            ct = $opened.ToString("yyyy-MM-dd'T'HH:mm")
+            xt = $(if ($closed -and $closed.Year -lt 9000) { $closed.ToString("yyyy-MM-dd'T'HH:mm") } else { $null })
         }
     })
 
@@ -1063,6 +1069,31 @@ if (-not $SkipTeamStats) {
                 $assigned = $f.'System.AssignedTo'
                 $person   = if ($assigned) { Find-PersonId -Name $assigned.displayName -Email $assigned.uniqueName } else { -1 }
 
+                # State history, for how long work takes to reach review: each state
+                # entered, when, and who had it then. Tasks don't go through review,
+                # and nothing that hasn't started has a history yet.
+                $history = $null
+                if ($kind -ne 'task' -and $category -ne 'Proposed') {
+                    try {
+                        $who = $null
+                        $history = @(foreach ($update in @((Invoke-Ado -Uri "$wiBase/wit/workitems/$($item.id)/updates?api-version=7.1").value)) {
+                            $changes = $update.fields
+                            if (-not $changes) { continue }
+                            $assignedChange = $changes.PSObject.Properties['System.AssignedTo']
+                            if ($assignedChange) { $who = $assignedChange.Value.newValue }
+                            $stateChange = $changes.PSObject.Properties['System.State']
+                            if (-not $stateChange -or -not $stateChange.Value.newValue) { continue }
+                            $stamp = $changes.PSObject.Properties['System.ChangedDate']
+                            $at = if ($stamp) { ConvertTo-Local $stamp.Value.newValue } else { ConvertTo-Local $update.revisedDate }
+                            if (-not $at -or $at.Year -ge 9000) { continue }   # ADO's year-9999 sentinel
+                            $whoId = if ($who) { Find-PersonId -Name $who.displayName -Email $who.uniqueName } else { -1 }
+                            , @($stateChange.Value.newValue, $at.ToString("yyyy-MM-dd'T'HH:mm"), $whoId)
+                        })
+                        if ($history.Count -eq 0) { $history = $null }
+                    }
+                    catch { Write-Warning "History for #$($item.id) - $($_.Exception.Message)" }
+                }
+
                 [void]$itemRecords.Add([ordered]@{
                     id  = $item.id
                     pj  = $projectIndex       # index into wiProjects
@@ -1078,6 +1109,7 @@ if (-not $SkipTeamStats) {
                     par = $(@($item.relations | Where-Object { $_.rel -eq 'System.LinkTypes.Hierarchy-Reverse' } |
                               ForEach-Object { [int](($_.url -split '/')[-1]) }) | Select-Object -First 1)
                     c   = $(if ($closed) { $closed.ToString('yyyy-MM-dd') } else { '' })
+                    h   = $history            # [state entered, when, who had it then]
                 })
             }
         }
@@ -1093,6 +1125,7 @@ if (-not $SkipTeamStats) {
         hoursPerDay     = [double](Get-StatsSetting 'hoursPerDevDay')
         stateOrder      = @(Get-StatsSetting 'stateOrder')
         handedOffStates = @(Get-StatsSetting 'handedOffStates')
+        reviewStates    = @(Get-StatsSetting 'reviewStates')
         teams           = @($Teams | ForEach-Object {
             $team    = $_
             # null tells the page to work the members out from who has PRs in the repos.

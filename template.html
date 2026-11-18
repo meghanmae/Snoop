@@ -971,6 +971,105 @@ const WORK_EVENTS = [];
   for (const evt of DATA.events) touch(evt.p, evt.d);
 })();
 
+/* ---------- how long things take ----------
+   Two clocks, both with weekends left out:
+   - Active to PR: a story or bug's first move into an in-development state
+     (Committed, In Progress...) until it first reaches a review state
+     (stats.reviewStates). Credited to whoever had it when it reached review.
+   - Time to merge: a PR's opening to its completion, credited to its author.
+   Each counts if it finished inside the stats window. */
+const REVIEW = new Set(((STATS && STATS.reviewStates) || []).map(s => s.toLowerCase()));
+const CATEGORY_OF = new Map(((STATS && STATS.states) || []).map(s => [s.n.toLowerCase(), s.g]));
+function categoryOf(state) {
+  const name = (state || '').toLowerCase();
+  if (CATEGORY_OF.has(name)) return CATEGORY_OF.get(name);
+  if (['closed', 'done', 'completed'].includes(name)) return 'Completed';
+  if (['removed', 'cut'].includes(name)) return 'Removed';
+  if (name === 'resolved') return 'Resolved';
+  if (['new', 'proposed', 'to do', 'approved', 'design'].includes(name)) return 'Proposed';
+  return 'InProgress';
+}
+const isActiveState = state => {
+  const name = (state || '').toLowerCase();
+  return categoryOf(state) === 'InProgress' && !HANDED_OFF.has(name) && !REVIEW.has(name);
+};
+
+// Snoop sends local times with no zone; reading them as UTC keeps the weekend maths in local days.
+const parseStamp = s => s ? new Date(s + ':00Z') : null;
+function businessMs(from, to) {
+  if (!from || !to || to <= from) return 0;
+  let total = 0;
+  for (let day = Math.floor(from.getTime() / DAY_MS) * DAY_MS; day < to.getTime(); day += DAY_MS) {
+    const dow = new Date(day).getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    total += Math.min(to.getTime(), day + DAY_MS) - Math.max(from.getTime(), day);
+  }
+  return total;
+}
+
+function activeToReview(item) {
+  if (item.k === 'task' || !item.h) return null;
+  let start = null;
+  for (const [state, at, who] of item.h) {
+    const name = (state || '').toLowerCase();
+    if (REVIEW.has(name)) {
+      if (!start) continue;
+      return { ms: businessMs(start, parseStamp(at)), day: at.slice(0, 10), p: who >= 0 ? who : item.p };
+    }
+    // Sent back to the backlog before anyone reviewed it: start again.
+    if (categoryOf(state) === 'Proposed') start = null;
+    else if (!start && isActiveState(state)) start = parseStamp(at);
+  }
+  return null;
+}
+
+if (STATS) {
+  for (const item of STATS.items) {
+    const cycle = activeToReview(item);
+    item.cy = cycle && cycle.day >= STATS.from ? cycle : null;
+  }
+  for (const pr of STATS.prs) {
+    pr.mt = pr.s === 'completed' && pr.ct && pr.xt && pr.x >= STATS.from
+      ? businessMs(parseStamp(pr.ct), parseStamp(pr.xt)) : null;
+  }
+}
+
+function timing(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return {
+    n: sorted.length,
+    avg: mean(sorted),
+    median: sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+  };
+}
+const cycleTiming = (items, id) => timing(items.filter(i => i.cy && (id == null || i.cy.p === id)).map(i => i.cy.ms));
+const mergeTiming = (prs, id) => timing(prs.filter(pr => pr.mt != null && (id == null || pr.p === id)).map(pr => pr.mt));
+
+/* Under a day in hours, otherwise in days - weekday days, as weekends are left out. */
+function fmtSpan(ms) {
+  if (ms == null) return '-';
+  const hours = ms / 3600000;
+  if (hours < 1) return '<1 h';
+  return hours < 24 ? `${fmt(hours)} h` : `${fmt(hours / 24)} days`;
+}
+const countOf = (n, what) => `${fmt(n)} ` + (n === 1 ? what : what === 'story or bug' ? 'stories and bugs' : what + 's');
+const spanParts = t => t ? { value: fmtSpan(t.avg), sub: `median ${fmtSpan(t.median)}` } : { value: '-', sub: '' };
+/* Every state Azure DevOps knows for these types, in workflow order - not just
+   the ones some item happens to be in right now. */
+function knownStates() {
+  const names = new Map();
+  for (const s of STATES) names.set(s.name.toLowerCase(), s.name);
+  for (const s of (STATS && STATS.states) || []) if (!names.has(s.n.toLowerCase())) names.set(s.n.toLowerCase(), s.n);
+  const order = ((STATS && STATS.stateOrder) || []).map(s => s.toLowerCase());
+  const at = name => { const i = order.indexOf(name.toLowerCase()); return i < 0 ? 999 : i; };
+  return [...names.values()].sort((a, b) => at(a) - at(b));
+}
+const activeNames = () => knownStates().filter(isActiveState).join(' / ') || 'an in-development state';
+const reviewNames = () => knownStates().filter(s => REVIEW.has(s.toLowerCase())).join(' / ')
+  || (STATS.reviewStates || []).join(' / ') || 'review';
+
 /* "SCH - Story", "SCH: Story", "[SCH] Story" - but not "SCHEMA story". */
 function hasTitlePrefix(title, prefix) {
   const t = (title || '').trimStart().toLowerCase();
@@ -1026,10 +1125,13 @@ function teamModel(team) {
     chartFrom:     Math.max(0, first - 1),
     forecast:      fc,
     closedCount:   scope.closedCount,
+    doneUnpointed: scope.doneUnpointed,
     contributors:  people.filter(p => p.velocity > 0).length,
     openUnpointed: open.filter(i => i.pts == null).length,
     byPhase:       Object.fromEntries(['notStarted', 'dev'].map(p => [p, sum(open.filter(i => phaseOf(i) === p), openValue)])),
     handedOff:     scope.handedOff,
+    cycle:         cycleTiming(items),
+    merge:         mergeTiming(prs),
     taskHours:     sum(scope.openTasks, t => t.rem)
   };
 }
@@ -1044,16 +1146,18 @@ function workScope(prs, items) {
   const handedOff = stories.filter(i => phaseOf(i) === 'handoff');
 
   // Points when the work is pointed, a plain story count when it isn't.
-  // Open stories with no points count at the average story size.
+  // An unpointed story counts at the average story size - closed or open
+  // alike, or a team that points only some stories looks slower than it is.
   const pointedDone = done.filter(i => i.pts != null);
   const unit      = pointedDone.length ? 'pts' : 'stories';
   const avgSize   = pointedDone.length ? mean(pointedDone.map(i => i.pts)) : 1;
-  const doneValue = i => unit === 'pts' ? (i.pts || 0) : 1;
   const openValue = i => unit === 'pts' ? (i.pts != null ? i.pts : avgSize) : 1;
+  const doneValue = openValue;
   const bySprint  = list => SPRINTS.map((s, idx) => sum(list.filter(i => i.si === idx), doneValue));
 
   return {
     prs, items, stories, done, open, handedOff, unit, avgSize, openValue, bySprint,
+    doneUnpointed: unit === 'pts' ? done.length - pointedDone.length : 0,
     velocity:    bySprint(done),
     closedCount: SPRINTS.map((s, idx) => done.filter(i => i.si === idx).length),
     closedBugs:  items.filter(i => i.k === 'bug' && phaseOf(i) === 'done'),
@@ -1103,6 +1207,8 @@ function personRows(ids, scope, recent) {
       taskHours: sum(openTasks.filter(t => t.p === id), t => t.rem),
       work,
       workDone:  workTotal(work),
+      cycle:     cycleTiming(scope.items, id),
+      merge:     mergeTiming(prs, id),
       act
     };
   }).sort(byWorkDone);
@@ -1490,7 +1596,9 @@ function renderTeamSection(model, index) {
   const k = model.recent.length;
   const tiles = el('div', 'tiles');
   tiles.appendChild(tile('Velocity', fmt(fc.rates.avg), `${unit} / sprint`,
-    `last ${plural(k, 'sprint')} - slow ${fmt(fc.rates.low)}, fast ${fmt(fc.rates.high)}`));
+    `last ${plural(k, 'sprint')} - slow ${fmt(fc.rates.low)}, fast ${fmt(fc.rates.high)}` +
+    (model.doneUnpointed
+      ? `\n${model.doneUnpointed} of ${model.done.length} closed stories unpointed, counted at ~${fmt(model.avgSize)} pts each` : '')));
 
   const unpointed = unit === 'pts' && model.openUnpointed
     ? `\n${model.openUnpointed} unpointed, counted at ~${fmt(model.avgSize)} pts each` : '';
@@ -1520,6 +1628,17 @@ function renderTeamSection(model, index) {
   const prCount = s => model.prs.filter(pr => pr.s === s).length;
   tiles.appendChild(tile('Pull requests', fmt(prCount('active') + prCount('draft')), 'open',
     `${prCount('draft')} drafts - ${prCount('completed')} completed, ${prCount('abandoned')} abandoned since ${longDay(toDate(STATS.from))}`));
+
+  const cycle = spanParts(model.cycle);
+  tiles.appendChild(tile('Active to PR', cycle.value, model.cycle ? 'avg' : '',
+    model.cycle
+      ? `${cycle.sub} - ${countOf(model.cycle.n, 'story or bug')} from ${activeNames()} to ${reviewNames()}, weekends left out`
+      : `No story or bug has gone from ${activeNames()} to ${reviewNames()} since ${longDay(toDate(STATS.from))}`));
+  const merge = spanParts(model.merge);
+  tiles.appendChild(tile('Time to merge', merge.value, model.merge ? 'avg' : '',
+    model.merge
+      ? `${merge.sub} - ${plural(model.merge.n, 'completed PR')}, opened to completed, weekends left out`
+      : `No PR completed since ${longDay(toDate(STATS.from))}`));
   section.appendChild(tiles);
 
   const charts = el('div', 'charts');
@@ -1527,7 +1646,7 @@ function renderTeamSection(model, index) {
   charts.appendChild(burnupChart(model));
   charts.appendChild(breakdownChart(model.items,
     `Everything in this team's backlog: open now, plus closed since ${longDay(toDate(STATS.from))}, in workflow order. ` +
-    `Only ${devStateNames() || 'not-started and in-development states'} count as work left. Hover a segment for its count.`));
+    `Only ${devStateNames(model.items) || 'not-started and in-development states'} count as work left. Hover a segment for its count.`));
   section.appendChild(charts);
 
   section.appendChild(el('h3', null, 'MEMBERS - MOST WORK DONE FIRST'));
@@ -1539,12 +1658,16 @@ function renderTeamSection(model, index) {
     `<b>How this is worked out.</b> Velocity is ${unit === 'pts' ? 'story points' : 'stories (nothing here is pointed)'} ` +
     `closed per ${STATS.sprintDays}-day sprint, averaged over the last ${plural(k, 'sprint')} since the team first closed a story; ` +
     `the range uses the slower and faster halves of those sprints. Only stories count - bugs, tasks and features never add points. ` +
-    `Open work is the stories still with the developers - not started or in development (${devStateNames()}); ` +
+    (unit === 'pts' ? `A story without points counts at the average story size (~${fmt(model.avgSize)} pts), whether it's closed or open. ` : '') +
+    `Open work is the stories still with the developers - not started or in development (${devStateNames(model.items)}); ` +
     `stories in ${(STATS.handedOffStates || []).join(' / ') || 'a handed-off state'} are with QA and aren't counted, nor are done ones. ` +
     `Open work divided by velocity gives the sprints left, and so the likely finish. ` +
     `Effort left multiplies those working days by the people currently closing work: it is combined effort in person-days, ` +
     `not how long it will take. A person's "days to clear" is their own open work at their own pace. ` +
     `Work done counts completed PRs plus closed stories, bugs and tasks. ` +
+    `<b>Active to PR</b> runs from a story or bug's first move into ${activeNames()} to its first move into ${reviewNames()}, ` +
+    `credited to whoever had it then; <b>time to merge</b> runs from a PR being opened to it being completed, credited to its author, ` +
+    `draft time included. Both leave weekends out and count what finished since ${longDay(toDate(STATS.from))}; tasks aren't timed. ` +
     (team.areaPaths.length || (team.titlePrefixes || []).length
       ? 'The backlog is every open story, bug and task ' +
         [team.areaPaths.length ? 'under this team\'s area paths' : '',
@@ -1588,7 +1711,7 @@ function personTable(rows, unit, opts = {}) {
   if (opts.activity) columns.push(['Teams', 'who'], ['First active'], ['Last active'], ['Days active']);
   columns.push(['Work done', 'who']);
   if (opts.activity) columns.push(['Pace / sprint'], ['Share while active']);
-  columns.push(['Pull requests', 'who'], ['Open drafts'], ['Stories closed'], ['Points closed'],
+  columns.push(['Pull requests', 'who'], ['Open drafts'], ['Time to merge'], ['Active to PR'], ['Stories closed'], ['Points closed'],
     ['Avg pts / story'], [`Velocity (${unit} / sprint)`, 'who'], ['Open stories'], [`Open ${unit}`]);
   if (opts.daysToClear) columns.push(['Days to clear']);
   columns.push(['Task hrs left']);
@@ -1676,6 +1799,10 @@ function personTable(rows, unit, opts = {}) {
     tr.appendChild(prCell);
 
     num(tr, p.prs.draft);
+    const spanCell = (t, what) => num(tr, t ? t.n : 0, t ? fmtSpan(t.avg) : '-',
+      t ? `Average ${fmtSpan(t.avg)}, median ${fmtSpan(t.median)}\nover ${countOf(t.n, what)}, weekends left out` : null);
+    spanCell(p.merge, 'completed PR');
+    spanCell(p.cycle, 'story or bug');
     num(tr, p.done);
 
     const ptsCell = el('td', p.points ? null : 'zero');
@@ -1716,7 +1843,7 @@ function renderTeamOverview(models) {
   const table = el('table');
   const head = el('tr');
   [['Team', 'who'], ['Members'], ['Velocity / sprint'], ['Open work'], ['Working days left'],
-   ['Likely finish'], ['Fast - slow'], ['Open PRs'], ['Drafts']]
+   ['Likely finish'], ['Fast - slow'], ['Open PRs'], ['Drafts'], ['Active to PR'], ['Time to merge']]
     .forEach(([label, cls]) => head.appendChild(el('th', cls || null, label)));
   const thead = el('thead'); thead.appendChild(head); table.appendChild(thead);
 
@@ -1737,6 +1864,10 @@ function renderTeamOverview(models) {
     const prs = s => model.prs.filter(pr => pr.s === s).length;
     tr.appendChild(el('td', null, prs('active') + prs('draft')));
     tr.appendChild(el('td', null, prs('draft')));
+    for (const [t, what] of [[model.cycle, 'story or bug'], [model.merge, 'completed PR']]) {
+      const td = tr.appendChild(el('td', t ? null : 'zero', t ? fmtSpan(t.avg) : '-'));
+      if (t) td.dataset.tip = `Average ${fmtSpan(t.avg)}, median ${fmtSpan(t.median)}\nover ${countOf(t.n, what)}, weekends left out`;
+    }
     body.appendChild(tr);
   });
   table.appendChild(body);
@@ -1834,7 +1965,9 @@ function renderPeople() {
     `Because newcomers and old hands have had very different amounts of time, the last two columns even it out: ` +
     `<b>pace</b> is work done per ${STATS.sprintDays}-day sprint while they were active, and <b>share while active</b> ` +
     `is their slice of all the work anyone on the roster finished between their first and last active days. ` +
-    `Velocity likewise only averages the sprints since each person's first activity. Only stories count towards points.`;
+    `Velocity likewise only averages the sprints since each person's first activity. Only stories count towards points. ` +
+    `<b>Time to merge</b> is from opening a PR to completing it, by author; <b>active to PR</b> is from a story or bug first entering ` +
+    `${activeNames()} to first reaching ${reviewNames()}, by whoever had it then. Both leave weekends out.`;
   view.appendChild(note);
 }
 

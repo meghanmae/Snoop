@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
-use chrono::{Local, Months, NaiveDate, TimeZone};
+use chrono::{Datelike, Local, Months, NaiveDate, TimeZone};
 use futures_util::future::join_all;
 use serde_json::{Value, json};
 
@@ -24,10 +24,22 @@ pub struct Raw {
     states: Vec<(String, String)>,
 }
 
+/// A state the item moved into, when, and who it was assigned to at the time.
+#[derive(Debug, PartialEq)]
+struct Transition {
+    state: String,
+    at: String,
+    name: String,
+    email: String,
+}
+
 struct Item {
     id: i64,
     /// Index into Settings.work_item_projects.
     project: usize,
+    /// Every state change, oldest first. Only fetched for stories and bugs
+    /// that have started, for timing how long they take to reach review.
+    history: Vec<Transition>,
     fields: Value,
     category: String,
     closed: Option<NaiveDate>,
@@ -255,6 +267,7 @@ async fn fetch_items(ado: &Ado, s: &Settings, from: NaiveDate) -> Result<(Vec<It
                 items.push(Item {
                     id: item["id"].as_i64().unwrap_or(0),
                     project: project_index,
+                    history: vec![],
                     fields,
                     category,
                     closed,
@@ -264,8 +277,58 @@ async fn fetch_items(ado: &Ado, s: &Settings, from: NaiveDate) -> Result<(Vec<It
             }
         }
         println!("Stories, bugs and tasks: {}/{project}  {}", s.work_item_org, ids.len());
+
+        // State history, for how long work takes to reach review. Tasks don't
+        // go through review, and nothing that hasn't started has a history yet.
+        let wanted: Vec<usize> = (0..items.len())
+            .filter(|&i| items[i].project == project_index && items[i].kind != Kind::Task && items[i].category != "Proposed")
+            .collect();
+        let histories = join_all(wanted.iter().map(|&i| {
+            let url = format!("{base}/wit/workitems/{}/updates?api-version=7.1", items[i].id);
+            async move { ado.get(&url).await }
+        }))
+        .await;
+        let mut fetched = 0;
+        for (&i, result) in wanted.iter().zip(histories) {
+            match result {
+                Ok(updates) => {
+                    items[i].history = transitions(&values(updates));
+                    fetched += 1;
+                }
+                Err(err) => println!("WARNING: history for #{} - {err:#}", items[i].id),
+            }
+        }
+        println!("State history: {}/{project}  {fetched} stories and bugs", s.work_item_org);
     }
     Ok((items, state_order))
+}
+
+/// Local time to the minute, without a zone: the page measures it against
+/// local weekends.
+fn stamp(value: &Value) -> Option<String> {
+    local(value).filter(|d| d.year() < 9000).map(|d| d.format("%Y-%m-%dT%H:%M").to_string())
+}
+
+/// Every state the item moved into, from its updates, oldest first, with
+/// whoever it was assigned to at that moment.
+fn transitions(updates: &[Value]) -> Vec<Transition> {
+    let mut out = vec![];
+    let (mut name, mut email) = (String::new(), String::new());
+    for update in updates {
+        let fields = &update["fields"];
+        if let Some(assigned) = fields.get("System.AssignedTo") {
+            // Cleared, the update has no newValue at all.
+            name = str_at(&assigned["newValue"], &["displayName"]).to_string();
+            email = str_at(&assigned["newValue"], &["uniqueName"]).to_string();
+        }
+        let Some(state) = fields["System.State"]["newValue"].as_str() else { continue };
+        // ADO writes a year-9999 sentinel on some revisions.
+        let Some(at) = stamp(&fields["System.ChangedDate"]["newValue"]).or_else(|| stamp(&update["revisedDate"])) else {
+            continue;
+        };
+        out.push(Transition { state: state.to_string(), at, name: name.clone(), email: email.clone() });
+    }
+    out
 }
 
 pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
@@ -284,7 +347,11 @@ pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
                 status = "draft";
             }
             let day = |key: &str| local(&pr[key]).map(|d| d.date_naive().format("%Y-%m-%d").to_string()).unwrap_or_default();
-            Some(json!({ "p": person, "r": repo, "s": status, "c": day("creationDate"), "x": day("closedDate") }))
+            Some(json!({
+                "p": person, "r": repo, "s": status, "c": day("creationDate"), "x": day("closedDate"),
+                // To the minute, for time to merge.
+                "ct": stamp(&pr["creationDate"]), "xt": stamp(&pr["closedDate"]),
+            }))
         })
         .collect();
 
@@ -319,6 +386,16 @@ pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
                 // A task or bug's team is its story's, since they rarely carry the title prefix.
                 "par": item.parent,
                 "c": item.closed.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default(),
+                // [state entered, when, who had it then]
+                "h": (!item.history.is_empty()).then(|| {
+                    item.history
+                        .iter()
+                        .map(|t| {
+                            let who = if t.name.is_empty() && t.email.is_empty() { -1 } else { resolver.find(&t.name, &t.email) };
+                            json!([t.state, t.at, who])
+                        })
+                        .collect::<Vec<_>>()
+                }),
             })
         })
         .collect();
@@ -366,6 +443,7 @@ pub fn build(raw: Raw, s: &Settings, resolver: &mut Resolver<'_>) -> Value {
         "hoursPerDay": st.hours_per_dev_day,
         "stateOrder": st.state_order,
         "handedOffStates": st.handed_off_states,
+        "reviewStates": st.review_states,
         "teams": teams,
         "prs": prs,
         "items": items,
@@ -385,5 +463,32 @@ mod tests {
         let types = query_types(&["User Story".into(), "Feature".into(), "bug".into(), "Epic".into(), "Product Backlog Item".into()]);
         assert_eq!(types, ["User Story", "Product Backlog Item", "Bug", "Task"]);
         assert!(Kind::of("Bug") == Kind::Bug && Kind::of("Task") == Kind::Task && Kind::of("User Story") == Kind::Story);
+    }
+
+    #[test]
+    fn transitions_carry_the_assignee_at_the_time() {
+        let at = |t: &str| chrono::DateTime::parse_from_rfc3339(t).unwrap().with_timezone(&Local).format("%Y-%m-%dT%H:%M").to_string();
+        let updates: Vec<Value> = serde_json::from_str(
+            r#"[
+                { "fields": { "System.State": { "newValue": "New" }, "System.ChangedDate": { "newValue": "2026-08-03T15:00:00Z" } } },
+                { "fields": { "System.AssignedTo": { "newValue": { "displayName": "Grant, Sam", "uniqueName": "sam@contoso.com" } },
+                              "System.ChangedDate": { "newValue": "2026-08-04T15:00:00Z" } } },
+                { "fields": { "System.State": { "oldValue": "New", "newValue": "Committed" }, "System.ChangedDate": { "newValue": "2026-08-05T15:00:00Z" } } },
+                { "fields": { "System.Title": { "newValue": "renamed" }, "System.ChangedDate": { "newValue": "2026-08-06T15:00:00Z" } } },
+                { "fields": { "System.AssignedTo": { "oldValue": {} },
+                              "System.State": { "newValue": "PR Review" }, "System.ChangedDate": { "newValue": "2026-08-07T15:00:00Z" } } }
+            ]"#,
+        )
+        .unwrap();
+        let t = transitions(&updates);
+        let summary: Vec<(&str, String, &str)> = t.iter().map(|t| (t.state.as_str(), t.at.clone(), t.name.as_str())).collect();
+        assert_eq!(
+            summary,
+            [
+                ("New", at("2026-08-03T15:00:00Z"), ""),
+                ("Committed", at("2026-08-05T15:00:00Z"), "Grant, Sam"),
+                ("PR Review", at("2026-08-07T15:00:00Z"), "")
+            ]
+        );
     }
 }

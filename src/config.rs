@@ -134,6 +134,9 @@ pub struct StatsConfig {
     /// States where the work has left the developers - Test, with QA, say.
     /// Not counted as work left, and not done until it closes.
     pub handed_off_states: Vec<String>,
+    /// States where work waits on a pull request review. Reaching one stops the
+    /// "active to PR" clock.
+    pub review_states: Vec<String>,
 }
 
 impl Default for StatsConfig {
@@ -152,6 +155,7 @@ impl Default for StatsConfig {
                 "Done", "Closed", "Completed",
             ]),
             handed_off_states: names(&["Test", "Testing", "QA", "In QA", "Resolved"]),
+            review_states: names(&["PR Review", "PR", "Code Review", "In Review"]),
         }
     }
 }
@@ -316,6 +320,7 @@ mod tests {
         let workflow = ["New", "To Do", "Approved", "Committed", "In Progress", "PR Review", "Test", "Done"];
         assert!(workflow.windows(2).all(|w| at(w[0]) < at(w[1])));
         assert!(stats.handed_off_states.iter().any(|s| s == "Test"));
+        assert!(stats.review_states.iter().any(|s| s == "PR Review"));
         assert!(!stats.handed_off_states.iter().any(|s| ["New", "To Do", "Approved", "Committed", "In Progress", "PR Review", "Done"].contains(&s.as_str())));
     }
 
